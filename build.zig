@@ -1,25 +1,31 @@
 const std = @import("std");
 
-// TODO: There are two strats for linking:
-// - 1. Normal linking assuming the user has everything setup correctly. (this is what we do now)
-// - 2. runtime linking where we link against stubs and then use rpath on the target system:
-// - 3. linking with the PyPi packages similar to what PyTorch does presently,
-//      this is the same as (2) but then we use specific rpaths (see PyTorch CMake config)
-// We want this to be configurable later
-
 pub fn build(b: *std.Build) !void {
+    const add_pypi_rpath = b.option(bool, "add-pypi-rpath", "Add PyPI rpaths to enable loading CUDA from PyPI install. This option only makes sense if the dependent library is a Python package.") orelse false;
+
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    addNvDec(b, target, optimize);
-    addNvEnc(b, target, optimize);
+    const nvdec = addNvDec(b, target, optimize);
+    const nvenc = addNvEnc(b, target, optimize);
+
+    const modules = .{ nvdec, nvenc };
+    inline for (modules) |module| {
+        if (add_pypi_rpath) {
+            // Through this trick any downstream library that uses nvdec or nvenc will automatically
+            // have extra rpaths which will allow it to load from the PyPI installation location, assuming
+            // the library is installed through PyPI as well.
+            switch (target.result.os.tag) {
+                .linux => module.addRPathSpecial("$ORIGIN/../../nvidia/cuda_runtime/lib"),
+                .macos => module.addRPathSpecial("@loader_path/../../nvidia/cuda_runtime/lib"),
+                .windows => module.addRPathSpecial("../../nvidia/cuda_runtime/lib"),
+                else => module.addRPathSpecial("../../nvidia/cuda_runtime/lib"),
+            }
+        }
+    }
 }
 
-fn addNvDec(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) void {
+fn addNvDec(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
     const nvdec_bindings = b.addModule("nvdec_bindings", .{
         .root_source_file = b.path("nvdec_bindings.zig"),
         .target = target,
@@ -31,20 +37,17 @@ fn addNvDec(
     nvdec_bindings.link_libc = true;
 
     // Zig-friendly wrapper module
-
     const nvdec = b.addModule("nvdec", .{
         .root_source_file = b.path("nvdec.zig"),
         .target = target,
         .optimize = optimize,
     });
     nvdec.addImport("nvdec_bindings", nvdec_bindings);
+
+    return nvdec;
 }
 
-fn addNvEnc(
-    b: *std.Build,
-    target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) void {
+fn addNvEnc(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
     const nvenc_bindings = b.addModule("nvenc_bindings", .{
         .root_source_file = b.path("nvenc_bindings.zig"),
         .target = target,
@@ -62,4 +65,6 @@ fn addNvEnc(
         .optimize = optimize,
     });
     nvenc.addImport("nvenc_bindings", nvenc_bindings);
+
+    return nvenc;
 }
