@@ -193,46 +193,46 @@ pub extern fn cuvidCtxUnlock(lck: CUvideoctxlock, reserved_flags: c_uint) CUresu
 
 // encoder (nvEncodeAPI.h)
 
-pub const NVENCAPI = "";
-pub const NVENCAPI_MAJOR_VERSION = @as(c_int, 9);
-pub const NVENCAPI_MINOR_VERSION = @as(c_int, 1);
-pub const NVENCAPI_VERSION = NVENCAPI_MAJOR_VERSION | (NVENCAPI_MINOR_VERSION << @as(c_int, 24));
+// pub const NVENCAPI = "";
+// pub const NVENCAPI_MAJOR_VERSION = @as(c_int, 9);
+// pub const NVENCAPI_MINOR_VERSION = @as(c_int, 1);
+// pub const NVENCAPI_VERSION = NVENCAPI_MAJOR_VERSION | (NVENCAPI_MINOR_VERSION << @as(c_int, 24));
+//
+// pub const NV_ENC_SUCCESS: c_int = 0;
+// pub const NV_ENC_ERR_NO_ENCODE_DEVICE: c_int = 1;
+// pub const NV_ENC_ERR_UNSUPPORTED_DEVICE: c_int = 2;
+// pub const NV_ENC_ERR_INVALID_ENCODERDEVICE: c_int = 3;
+// pub const NV_ENC_ERR_INVALID_DEVICE: c_int = 4;
+// pub const NV_ENC_ERR_DEVICE_NOT_EXIST: c_int = 5;
+// pub const NV_ENC_ERR_INVALID_PTR: c_int = 6;
+// pub const NV_ENC_ERR_INVALID_EVENT: c_int = 7;
+// pub const NV_ENC_ERR_INVALID_PARAM: c_int = 8;
+// pub const NV_ENC_ERR_INVALID_CALL: c_int = 9;
+// pub const NV_ENC_ERR_OUT_OF_MEMORY: c_int = 10;
+// pub const NV_ENC_ERR_ENCODER_NOT_INITIALIZED: c_int = 11;
+// pub const NV_ENC_ERR_UNSUPPORTED_PARAM: c_int = 12;
+// pub const NV_ENC_ERR_LOCK_BUSY: c_int = 13;
+// pub const NV_ENC_ERR_NOT_ENOUGH_BUFFER: c_int = 14;
+// pub const NV_ENC_ERR_INVALID_VERSION: c_int = 15;
+// pub const NV_ENC_ERR_MAP_FAILED: c_int = 16;
+// pub const NV_ENC_ERR_NEED_MORE_INPUT: c_int = 17;
+// pub const NV_ENC_ERR_ENCODER_BUSY: c_int = 18;
+// pub const NV_ENC_ERR_EVENT_NOT_REGISTERD: c_int = 19;
+// pub const NV_ENC_ERR_GENERIC: c_int = 20;
+// pub const NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY: c_int = 21;
+// pub const NV_ENC_ERR_UNIMPLEMENTED: c_int = 22;
+// pub const NV_ENC_ERR_RESOURCE_REGISTER_FAILED: c_int = 23;
+// pub const NV_ENC_ERR_RESOURCE_NOT_REGISTERED: c_int = 24;
+// pub const NV_ENC_ERR_RESOURCE_NOT_MAPPED: c_int = 25;
+// pub const enum__NVENCSTATUS = c_uint;
+// pub const NVENCSTATUS = enum__NVENCSTATUS;
 
-pub const NV_ENC_SUCCESS: c_int = 0;
-pub const NV_ENC_ERR_NO_ENCODE_DEVICE: c_int = 1;
-pub const NV_ENC_ERR_UNSUPPORTED_DEVICE: c_int = 2;
-pub const NV_ENC_ERR_INVALID_ENCODERDEVICE: c_int = 3;
-pub const NV_ENC_ERR_INVALID_DEVICE: c_int = 4;
-pub const NV_ENC_ERR_DEVICE_NOT_EXIST: c_int = 5;
-pub const NV_ENC_ERR_INVALID_PTR: c_int = 6;
-pub const NV_ENC_ERR_INVALID_EVENT: c_int = 7;
-pub const NV_ENC_ERR_INVALID_PARAM: c_int = 8;
-pub const NV_ENC_ERR_INVALID_CALL: c_int = 9;
-pub const NV_ENC_ERR_OUT_OF_MEMORY: c_int = 10;
-pub const NV_ENC_ERR_ENCODER_NOT_INITIALIZED: c_int = 11;
-pub const NV_ENC_ERR_UNSUPPORTED_PARAM: c_int = 12;
-pub const NV_ENC_ERR_LOCK_BUSY: c_int = 13;
-pub const NV_ENC_ERR_NOT_ENOUGH_BUFFER: c_int = 14;
-pub const NV_ENC_ERR_INVALID_VERSION: c_int = 15;
-pub const NV_ENC_ERR_MAP_FAILED: c_int = 16;
-pub const NV_ENC_ERR_NEED_MORE_INPUT: c_int = 17;
-pub const NV_ENC_ERR_ENCODER_BUSY: c_int = 18;
-pub const NV_ENC_ERR_EVENT_NOT_REGISTERD: c_int = 19;
-pub const NV_ENC_ERR_GENERIC: c_int = 20;
-pub const NV_ENC_ERR_INCOMPATIBLE_CLIENT_KEY: c_int = 21;
-pub const NV_ENC_ERR_UNIMPLEMENTED: c_int = 22;
-pub const NV_ENC_ERR_RESOURCE_REGISTER_FAILED: c_int = 23;
-pub const NV_ENC_ERR_RESOURCE_NOT_REGISTERED: c_int = 24;
-pub const NV_ENC_ERR_RESOURCE_NOT_MAPPED: c_int = 25;
-pub const enum__NVENCSTATUS = c_uint;
-pub const NVENCSTATUS = enum__NVENCSTATUS;
-
-pub const GUID = extern struct {
-    Data1: u32 = @import("std").mem.zeroes(u32),
-    Data2: u16 = @import("std").mem.zeroes(u16),
-    Data3: u16 = @import("std").mem.zeroes(u16),
-    Data4: [8]u8 = @import("std").mem.zeroes([8]u8),
-};
+// pub const GUID = extern struct {
+//     Data1: u32 = @import("std").mem.zeroes(u32),
+//     Data2: u16 = @import("std").mem.zeroes(u16),
+//     Data3: u16 = @import("std").mem.zeroes(u16),
+//     Data4: [8]u8 = @import("std").mem.zeroes([8]u8),
+// };
 
 // I think we can just leave these out?
 // pub extern fn NvEncOpenEncodeSession(device: ?*anyopaque, deviceType: u32, encoder: [*c]?*anyopaque) NVENCSTATUS;
@@ -274,18 +274,18 @@ pub const GUID = extern struct {
 // // pub extern fn NvEncodeAPIGetMaxSupportedVersion(version: [*c]u32) NVENCSTATUS;
 // pub extern fn NvEncGetLastErrorString(encoder: ?*anyopaque) [*c]const u8;
 
-pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME: c_int = 1;
-pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_FIELD: c_int = 2;
-pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_MBAFF: c_int = 3;
-pub const enum__NV_ENC_PARAMS_FRAME_FIELD_MODE = c_uint;
-pub const NV_ENC_PARAMS_FRAME_FIELD_MODE = enum__NV_ENC_PARAMS_FRAME_FIELD_MODE;
-
-pub const NV_ENC_MV_PRECISION_DEFAULT: c_int = 0;
-pub const NV_ENC_MV_PRECISION_FULL_PEL: c_int = 1;
-pub const NV_ENC_MV_PRECISION_HALF_PEL: c_int = 2;
-pub const NV_ENC_MV_PRECISION_QUARTER_PEL: c_int = 3;
-pub const enum__NV_ENC_MV_PRECISION = c_uint;
-pub const NV_ENC_MV_PRECISION = enum__NV_ENC_MV_PRECISION;
+// pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_FRAME: c_int = 1;
+// pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_FIELD: c_int = 2;
+// pub const NV_ENC_PARAMS_FRAME_FIELD_MODE_MBAFF: c_int = 3;
+// pub const enum__NV_ENC_PARAMS_FRAME_FIELD_MODE = c_uint;
+// pub const NV_ENC_PARAMS_FRAME_FIELD_MODE = enum__NV_ENC_PARAMS_FRAME_FIELD_MODE;
+//
+// pub const NV_ENC_MV_PRECISION_DEFAULT: c_int = 0;
+// pub const NV_ENC_MV_PRECISION_FULL_PEL: c_int = 1;
+// pub const NV_ENC_MV_PRECISION_HALF_PEL: c_int = 2;
+// pub const NV_ENC_MV_PRECISION_QUARTER_PEL: c_int = 3;
+// pub const enum__NV_ENC_MV_PRECISION = c_uint;
+// pub const NV_ENC_MV_PRECISION = enum__NV_ENC_MV_PRECISION;
 
 pub const struct__NV_ENC_CONFIG_H264_VUI_PARAMETERS = extern struct {
     overscanInfoPresentFlag: u32 = @import("std").mem.zeroes(u32),
@@ -470,7 +470,6 @@ pub const struct__NV_ENC_QP = extern struct {
 pub const NV_ENC_QP_MAP_DISABLED: c_int = 0;
 pub const NV_ENC_QP_MAP_EMPHASIS: c_int = 1;
 pub const NV_ENC_QP_MAP_DELTA: c_int = 2;
-pub const NV_ENC_QP_MAP: c_int = 3;
 pub const enum__NV_ENC_QP_MAP_MODE = c_uint;
 pub const NV_ENC_QP_MAP_MODE = enum__NV_ENC_QP_MAP_MODE;
 

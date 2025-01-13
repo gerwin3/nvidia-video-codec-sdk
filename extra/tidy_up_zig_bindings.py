@@ -1,13 +1,64 @@
+import os
 out = []
 
 def run(input_file):
+    global out
     with open(input_file) as f:
         lines = f.readlines()
-        lines = [l.strip() for l in lines if l.strip() != '']
-    for line in lines:
-        try_rewrite_nvenc_enum(line, lines)
+        lines = [l.strip() for l in lines]
+    for line_index, line in enumerate(lines):
+        # try_rewrite_nvenc_enum(line_index, line, lines)
+        try_rewrite_struct(line_index, line, lines)
+    out = list(sorted(out, key=lambda obj: obj[0]))
+    for obj in out:
+        print('\n'.join(obj))
+        print()
 
-def try_rewrite_nvenc_enum(line, lines):
+def try_rewrite_struct(line_index, line, lines):
+    """
+    pub const struct__NV_ENC_CONFIG_H264_VUI_PARAMETERS = extern struct {
+        overscanInfoPresentFlag: u32 = @import("std").mem.zeroes(u32),
+        overscanInfo: u32 = @import("std").mem.zeroes(u32),
+        videoSignalTypePresentFlag: u32 = @import("std").mem.zeroes(u32),
+        videoFormat: u32 = @import("std").mem.zeroes(u32),
+        videoFullRangeFlag: u32 = @import("std").mem.zeroes(u32),
+        colourDescriptionPresentFlag: u32 = @import("std").mem.zeroes(u32),
+        colourPrimaries: u32 = @import("std").mem.zeroes(u32),
+        transferCharacteristics: u32 = @import("std").mem.zeroes(u32),
+        colourMatrix: u32 = @import("std").mem.zeroes(u32),
+        chromaSampleLocationFlag: u32 = @import("std").mem.zeroes(u32),
+        chromaSampleLocationTop: u32 = @import("std").mem.zeroes(u32),
+        chromaSampleLocationBot: u32 = @import("std").mem.zeroes(u32),
+        bitstreamRestrictionFlag: u32 = @import("std").mem.zeroes(u32),
+        reserved: [15]u32 = @import("std").mem.zeroes([15]u32),
+    };
+    """
+    global out
+    parts = line.split(' ')
+    if len(parts) >= 3 and parts[0] == 'pub' and parts[1] == 'const' and parts[2].startswith('struct__'):
+        orig_name = parts[2]
+        new_name = orig_name.replace('struct__', '')
+        new_name = new_name.replace('NVENC', 'NV_ENC_')
+        new_name = pascalize(new_name)
+        new_name = new_name.replace('NvEnc', '')
+        obj = [f'pub const {new_name} = extern struct {{']
+        while True:
+            line_index += 1
+            if lines[line_index].strip() == '};':
+                break
+            line = lines[line_index]
+            parts = line.split('=')
+            assert(len(parts) == 2)
+            out_line = parts[0].strip()
+            if out_line.startswith('reserved'):
+                out_line = f'_{out_line}'
+            out_line = f'    {out_line},'
+            obj += [out_line]
+        obj += ['};']
+        out.append(obj)
+
+
+def try_rewrite_nvenc_enum(line_index, line, lines):
     """
     Rewrites:
 
@@ -37,21 +88,42 @@ def try_rewrite_nvenc_enum(line, lines):
     };
     ```
     """
+    global out
     parts = line.split(' ')
     if len(parts) >= 2 and parts[-2] == '=' and parts[-1].startswith('enum__'):
         orig_name = parts[2]
         new_name = orig_name.replace('NVENC', 'NV_ENC_')
         new_name = pascalize(new_name)
-        value_lines = [l for l in lines if l.startswith(f'pub const {orig_name}') and ': c_int = ' in l]
+        new_name = new_name.replace('NvEnc', '')
         data_type = [l for l in lines if f'pub const enum__{orig_name}' in l][0].split(' ')[-1][0:-1]
         obj = [f'pub const {new_name} = enum({data_type}) {{']
+
+        vl_start = line_index - 2
+        value_lines = []
+        while True:
+            if lines[vl_start].strip() == '':
+                break
+            vl_start -= 1
+        for i in range(vl_start + 1, line_index - 1):
+            value_lines.append(lines[i])
+        # value_lines = [l for l in lines if l.startswith(f'pub const {orig_name}') and ': c_int = ' in l]
+        tagvs = []
         for value_line in value_lines:
             tag = value_line.split(' ')[2][0:-1].replace(f'{orig_name}_', '')
             tag = snakize(tag)
             value = int(value_line.split(' ')[-1][0:-1])
-            obj += [f'    .{tag} = {value},']
+            tagvs.append((tag, value))
+        commontag = os.path.commonprefix([t for (t, _) in tagvs])
+        for tag, value in tagvs:
+            tag = tag[len(commontag):]
+            if tag.startswith('err_'):
+                tag = tag[4:]
+            tag = tag.replace('nv_enc_tier_', '')
+            if tag[0].isnumeric():
+                tag = f'@"{tag}"'
+            obj += [f'    {tag} = {value},']
         obj += ['};']
-        print('\n'.join(obj))
+        out.append(obj)
 
 def pascalize(s):
     out = ''
