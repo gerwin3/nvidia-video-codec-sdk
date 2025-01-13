@@ -604,8 +604,59 @@ pub const ApiFunctionList = extern struct {
     __nvEncDestroyMVBuffer: ?*anyopaque, // not included in bindings
     __nvEncRunMotionEstimationOnly: ?*anyopaque, // not included in bindings
     nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8,
-    nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
+    __nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
     _reserved2: [279]?*anyopaque,
 };
 
-pub extern fn NvEncodeAPICreateInstance(functionList: ?*ApiFunctionList) Status;
+pub var version: ?u32 = null;
+pub var nvEncInitializeEncoder: ?*const fn (?*anyopaque, ?*InitializeParams) callconv(.C) Status = null;
+pub var nvEncCreateInputBuffer: ?*const fn (?*anyopaque, ?*CreateInputBuffer) callconv(.C) Status = null;
+pub var nvEncDestroyInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status = null;
+pub var nvEncCreateBitstreamBuffer: ?*const fn (?*anyopaque, ?*CreateBitstreamBuffer) callconv(.C) Status = null;
+pub var nvEncDestroyBitstreamBuffer: ?*const fn (?*anyopaque, OutputPtr) callconv(.C) Status = null;
+pub var nvEncEncodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) Status = null;
+pub var nvEncLockBitstream: ?*const fn (?*anyopaque, ?*LockBitstream) callconv(.C) Status = null;
+pub var nvEncUnlockBitstream: ?*const fn (?*anyopaque, OutputPtr) callconv(.C) Status = null;
+pub var nvEncLockInputBuffer: ?*const fn (?*anyopaque, ?*LockInputBuffer) callconv(.C) Status = null;
+pub var nvEncUnlockInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status = null;
+pub var nvEncGetSequenceParams: ?*const fn (?*anyopaque, ?*SequenceParamPayload) callconv(.C) Status = null;
+pub var nvEncDestroyEncoder: ?*const fn (?*anyopaque) callconv(.C) Status = null;
+pub var nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*anyopaque) callconv(.C) Status = null;
+pub var nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8 = null;
+
+/// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
+pub fn load() !void {
+    const std = @import("std");
+    const builtin = @import("builtin");
+
+    var dylib = try comptime switch (builtin.target.os) {
+        .linux, .macos => std.DynLib.open("libnvidia-encode.so.1"),
+        .windows => switch (builtin.target.cpu.arch) {
+            .x86 => std.DynLib.open("nvEncodeAPI.dll"),
+            .x86_64 => std.DynLib.open("nvEncodeAPI64.dll"),
+            else => @compileError("unsupported architecture"),
+        },
+        else => @compileError("unsupported operating system"),
+    };
+
+    const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");
+    var function_list = std.mem.zeroes(ApiFunctionList);
+    if (NvEncodeAPICreateInstance(&function_list) != .success)
+        @panic("NvEncodeAPICreateInstance failed");
+
+    version = function_list.version;
+    nvEncInitializeEncoder = function_list.nvEncInitializeEncoder;
+    nvEncCreateInputBuffer = function_list.nvEncCreateInputBuffer;
+    nvEncDestroyInputBuffer = function_list.nvEncDestroyInputBuffer;
+    nvEncCreateBitstreamBuffer = function_list.nvEncCreateBitstreamBuffer;
+    nvEncDestroyBitstreamBuffer = function_list.nvEncDestroyBitstreamBuffer;
+    nvEncEncodePicture = function_list.nvEncEncodePicture;
+    nvEncLockBitstream = function_list.nvEncLockBitstream;
+    nvEncUnlockBitstream = function_list.nvEncUnlockBitstream;
+    nvEncLockInputBuffer = function_list.nvEncLockInputBuffer;
+    nvEncUnlockInputBuffer = function_list.nvEncUnlockInputBuffer;
+    nvEncGetSequenceParams = function_list.nvEncGetSequenceParams;
+    nvEncDestroyEncoder = function_list.nvEncDestroyEncoder;
+    nvEncOpenEncodeSessionEx = function_list.nvEncOpenEncodeSessionEx;
+    nvEncGetLastErrorString = function_list.nvEncGetLastErrorString;
+}

@@ -34,7 +34,7 @@
           packages = with pkgs; [
             zigpkgs.default
             zls
-            cudaPackages.cuda_cudart
+            cudaPackages.cudatoolkit
           ];
 
           # The shell hook makes sure that:
