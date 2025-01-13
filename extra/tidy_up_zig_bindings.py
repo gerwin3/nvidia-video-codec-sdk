@@ -48,7 +48,7 @@ def try_rewrite_struct(line_index, line, lines):
                 break
             line = lines[line_index]
             parts = line.split('=')
-            assert(len(parts) == 2)
+            # assert(len(parts) == 2)
             out_line = parts[0].strip()
             if out_line.startswith('reserved'):
                 out_line = f'_{out_line}'

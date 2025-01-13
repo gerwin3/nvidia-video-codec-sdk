@@ -659,18 +659,19 @@ typedef struct _CUVIDVP9PICPARAMS
     unsigned char AltRefIdx;
     unsigned char colorSpace;
 
-    unsigned short profile : 3;
-    unsigned short frameContextIdx : 2;
-    unsigned short frameType : 1;
-    unsigned short showFrame : 1;
-    unsigned short errorResilient : 1;
-    unsigned short frameParallelDecoding : 1;
-    unsigned short subSamplingX : 1;
-    unsigned short subSamplingY : 1;
-    unsigned short intraOnly : 1;
-    unsigned short allow_high_precision_mv : 1;
-    unsigned short refreshEntropyProbs : 1;
-    unsigned short reserved2Bits : 2;
+    unsigned short bitFlags1;
+    /*unsigned short profile : 3;*/
+    /*unsigned short frameContextIdx : 2;*/
+    /*unsigned short frameType : 1;*/
+    /*unsigned short showFrame : 1;*/
+    /*unsigned short errorResilient : 1;*/
+    /*unsigned short frameParallelDecoding : 1;*/
+    /*unsigned short subSamplingX : 1;*/
+    /*unsigned short subSamplingY : 1;*/
+    /*unsigned short intraOnly : 1;*/
+    /*unsigned short allow_high_precision_mv : 1;*/
+    /*unsigned short refreshEntropyProbs : 1;*/
+    /*unsigned short reserved2Bits : 2;*/
 
     unsigned short reserved16Bits;
 
@@ -685,11 +686,12 @@ typedef struct _CUVIDVP9PICPARAMS
     unsigned char log2_tile_columns;
     unsigned char log2_tile_rows;
 
-    unsigned char segmentEnabled : 1;
-    unsigned char segmentMapUpdate : 1;
-    unsigned char segmentMapTemporalUpdate : 1;
-    unsigned char segmentFeatureMode : 1;
-    unsigned char reserved4Bits : 4;
+    unsigned char bitFlags2;
+    /*unsigned char segmentEnabled : 1;*/
+    /*unsigned char segmentMapUpdate : 1;*/
+    /*unsigned char segmentMapTemporalUpdate : 1;*/
+    /*unsigned char segmentFeatureMode : 1;*/
+    /*unsigned char reserved4Bits : 4;*/
 
 
     unsigned char segmentFeatureEnable[8][4];

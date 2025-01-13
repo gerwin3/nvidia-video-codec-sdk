@@ -566,46 +566,46 @@ pub const SequenceParamPayload = extern struct {
 pub const ApiFunctionList = extern struct {
     version: u32,
     reserved: u32,
-    nvEncOpenEncodeSession: ?*const fn (?*anyopaque, u32, [*c]?*anyopaque) callconv(.C) Status,
-    nvEncGetEncodeGUIDCount: ?*anyopaque, // not included in bindings
-    nvEncGetEncodeProfileGUIDCount: ?*anyopaque, // not included in bindings,
-    nvEncGetEncodeProfileGUIDs: ?*anyopaque, // not included in bindings
-    nvEncGetEncodeGUIDs: ?*anyopaque, // not included in bindings
-    nvEncGetInputFormatCount: ?*anyopaque, // not included in bindings
-    nvEncGetInputFormats: ?*anyopaque, // not included in bindings
-    nvEncGetEncodeCaps: ?*anyopaque, // not included in bindings
-    nvEncGetEncodePresetCount: ?*anyopaque, // not included in bindings
-    nvEncGetEncodePresetGUIDs: ?*anyopaque, // not included in bindings
-    nvEncGetEncodePresetConfig: ?*anyopaque, // not included in bindings
+    __nvEncOpenEncodeSession: ?*const fn (?*anyopaque, u32, ?*?*anyopaque) callconv(.C) Status, // deprecated
+    __nvEncGetEncodeGUIDCount: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodeProfileGUIDCount: ?*anyopaque, // not included in bindings,
+    __nvEncGetEncodeProfileGUIDs: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodeGUIDs: ?*anyopaque, // not included in bindings
+    __nvEncGetInputFormatCount: ?*anyopaque, // not included in bindings
+    __nvEncGetInputFormats: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodeCaps: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodePresetCount: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodePresetGUIDs: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodePresetConfig: ?*anyopaque, // not included in bindings
     nvEncInitializeEncoder: ?*const fn (?*anyopaque, ?*InitializeParams) callconv(.C) Status,
-    nvEncCreateInputBuffer: ?*const fn (?*anyopaque, [*c]CreateInputBuffer) callconv(.C) Status,
+    nvEncCreateInputBuffer: ?*const fn (?*anyopaque, ?*CreateInputBuffer) callconv(.C) Status,
     nvEncDestroyInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status,
-    nvEncCreateBitstreamBuffer: ?*const fn (?*anyopaque, [*c]CreateBitstreamBuffer) callconv(.C) Status,
+    nvEncCreateBitstreamBuffer: ?*const fn (?*anyopaque, ?*CreateBitstreamBuffer) callconv(.C) Status,
     nvEncDestroyBitstreamBuffer: ?*const fn (?*anyopaque, OutputPtr) callconv(.C) Status,
     nvEncEncodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) Status,
     nvEncLockBitstream: ?*const fn (?*anyopaque, ?*LockBitstream) callconv(.C) Status,
     nvEncUnlockBitstream: ?*const fn (?*anyopaque, OutputPtr) callconv(.C) Status,
     nvEncLockInputBuffer: ?*const fn (?*anyopaque, ?*LockInputBuffer) callconv(.C) Status,
     nvEncUnlockInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status,
-    nvEncGetEncodeStats: ?*anyopaque, // not included in bindings
-    nvEncGetSequenceParams: ?*const fn (?*anyopaque, [*c]SequenceParamPayload) callconv(.C) Status,
-    nvEncRegisterAsyncEvent: ?*anyopaque, // not included in bindings
-    nvEncUnregisterAsyncEvent: ?*anyopaque, // not included in bindings
-    nvEncMapInputResource: ?*anyopaque, // not included in bindings
-    nvEncUnmapInputResource: ?*anyopaque, // not included in bindings
+    __nvEncGetEncodeStats: ?*anyopaque, // not included in bindings
+    nvEncGetSequenceParams: ?*const fn (?*anyopaque, ?*SequenceParamPayload) callconv(.C) Status,
+    __nvEncRegisterAsyncEvent: ?*anyopaque, // not included in bindings
+    __nvEncUnregisterAsyncEvent: ?*anyopaque, // not included in bindings
+    __nvEncMapInputResource: ?*anyopaque, // not included in bindings
+    __nvEncUnmapInputResource: ?*anyopaque, // not included in bindings
     nvEncDestroyEncoder: ?*const fn (?*anyopaque) callconv(.C) Status,
-    nvEncInvalidateRefFrames: ?*anyopaque, // not included in bindings
-    nvEncOpenEncodeSessionEx: ?*const fn ([*c]OpenEncodeSessionExParams, [*c]?*anyopaque) callconv(.C) Status,
-    nvEncRegisterResource: ?*anyopaque, // not included in bindings
-    nvEncUnregisterResource: ?*anyopaque, // not included in bindings
-    nvEncReconfigureEncoder: ?*anyopaque, // not included in bindings
+    __nvEncInvalidateRefFrames: ?*anyopaque, // not included in bindings
+    nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*anyopaque) callconv(.C) Status,
+    __nvEncRegisterResource: ?*anyopaque, // not included in bindings
+    __nvEncUnregisterResource: ?*anyopaque, // not included in bindings
+    __nvEncReconfigureEncoder: ?*anyopaque, // not included in bindings
     _reserved1: ?*anyopaque,
-    nvEncCreateMVBuffer: ?*anyopaque, // not included in bindings
-    nvEncDestroyMVBuffer: ?*anyopaque, // not included in bindings
-    nvEncRunMotionEstimationOnly: ?*anyopaque, // not included in bindings
+    __nvEncCreateMVBuffer: ?*anyopaque, // not included in bindings
+    __nvEncDestroyMVBuffer: ?*anyopaque, // not included in bindings
+    __nvEncRunMotionEstimationOnly: ?*anyopaque, // not included in bindings
     nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8,
     nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
     _reserved2: [279]?*anyopaque,
 };
 
-pub extern fn NvEncodeAPICreateInstance(functionList: [*c]ApiFunctionList) Status;
+pub extern fn NvEncodeAPICreateInstance(functionList: ?*ApiFunctionList) Status;
