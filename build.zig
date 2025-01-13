@@ -46,8 +46,8 @@ pub fn build(b: *std.Build) !void {
 
     const cuda_paths = try getCudaPaths(b);
 
-    addDecodingLibraryAndBindings(build, target, optimize, version, &cuda_paths);
-    addEncodingLibraryAndBindings(build, target, optimize, version, &cuda_paths);
+    addDecodingLibraryAndBindings(b, target, optimize, version, &cuda_paths);
+    addEncodingLibraryAndBindings(b, target, optimize, version, &cuda_paths);
 }
 
 fn addDecodingLibraryAndBindings(
@@ -72,8 +72,8 @@ fn addDecodingLibraryAndBindings(
     lib_nvdec.linkSystemLibrary("cuda");
     lib_nvdec.linkSystemLibrary("cudart");
     lib_nvdec.linkSystemLibrary("nvcuvid");
-    lib_nvdec.installHeader(b.path(version.getIncludeDir()).path("cuviddec.h"), "cuviddec.h");
-    lib_nvdec.installHeader(b.path(version.getIncludeDir()).path("nvcuvid.h"), "nvcuvid.h");
+    lib_nvdec.installHeader(b.path(b.pathJoin(&.{ version.getIncludeDir(), "cuviddec.h" })), "cuviddec.h");
+    lib_nvdec.installHeader(b.path(b.pathJoin(&.{ version.getIncludeDir(), "nvcuvid.h" })), "nvcuvid.h");
     // This is a little hacky since we are copying out cuda.h and adding it to the
     // install headers of this library without it even being part of this repo. But
     // without it the SDK headers could not be used since they require cuda.h.
@@ -120,7 +120,7 @@ fn addEncodingLibraryAndBindings(
     lib_nvenc.linkSystemLibrary("cuda");
     lib_nvenc.linkSystemLibrary("cudart");
     lib_nvenc.linkSystemLibrary("nvidia-encode");
-    lib_nvenc.installHeader(b.path(version.getIncludeDir()).path("nvEncodeAPI.h"), "nvEncodeAPI.h");
+    lib_nvenc.installHeader(b.path(b.pathJoin(&.{ version.getIncludeDir(), "nvEncodeAPI.h" })), "nvEncodeAPI.h");
 
     // Raw bindings
     const nvenc_bindings = b.addModule("nvenc_bindings", .{
