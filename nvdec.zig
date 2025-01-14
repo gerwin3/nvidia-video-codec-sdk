@@ -102,7 +102,7 @@ pub const Decoder = struct {
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
         if (data.len > 0) {
             packet.payload = data.ptr;
-            packet.payload_size = data.len;
+            packet.payload_size = @intCast(data.len);
             packet.flags = nvdec_bindings.packet_flags.timestamp;
         } else {
             packet.payload = null;
