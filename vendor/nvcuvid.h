@@ -132,9 +132,10 @@ typedef struct
     * Refer section E.2.1 (VUI parameters semantics) of H264 spec file
     */
     struct {
-        unsigned char video_format          : 3; /**< OUT: 0-Component, 1-PAL, 2-NTSC, 3-SECAM, 4-MAC, 5-Unspecified     */
-        unsigned char video_full_range_flag : 1; /**< OUT: indicates the black level and luma and chroma range           */
-        unsigned char reserved_zero_bits    : 4; /**< Reserved bits                                                      */
+        unsigned char bit_flags_1;
+        //unsigned char video_format          : 3; /**< OUT: 0-Component, 1-PAL, 2-NTSC, 3-SECAM, 4-MAC, 5-Unspecified     */
+        //unsigned char video_full_range_flag : 1; /**< OUT: indicates the black level and luma and chroma range           */
+        //unsigned char reserved_zero_bits    : 4; /**< Reserved bits                                                      */
         unsigned char color_primaries;           /**< OUT: chromaticity coordinates of source primaries                  */
         unsigned char transfer_characteristics;  /**< OUT: opto-electronic transfer characteristic of the source picture */
         unsigned char matrix_coefficients;       /**< OUT: used in deriving luma and chroma signals from RGB primaries   */

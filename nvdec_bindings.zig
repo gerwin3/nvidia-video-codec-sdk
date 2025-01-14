@@ -149,8 +149,17 @@ pub const VideoSurfaceFormat = enum(c_uint) {
 pub const CUcontext = ?*anyopaque; // from cuda.h
 pub const CUstream = ?*anyopaque; // from cuda.h
 
+pub const VideoParser = ?*anyopaque;
 pub const VideoDecoder = ?*anyopaque;
 pub const VideoCtxLock = ?*anyopaque;
+
+pub const VideoTimestamp = c_longlong;
+
+pub const pkt_endofstream: c_int = 1;
+pub const pkt_timestamp: c_int = 2;
+pub const pkt_discontinuity: c_int = 4;
+pub const pkt_endofpicture: c_int = 8;
+pub const pkt_notify_eos: c_int = 16;
 
 pub const CreateInfo = extern struct {
     ulWidth: c_ulong,
@@ -258,6 +267,56 @@ pub const H264SVCExt = extern struct {
     bRefBaseLayer: c_int,
 };
 
+pub const ParserDispInfo = extern struct {
+    picture_index: c_int,
+    progressive_frame: c_int,
+    top_field_first: c_int,
+    repeat_first_field: c_int,
+    timestamp: VideoTimestamp,
+};
+
+pub const ParserParams = extern struct {
+    CodecType: VideoCodec,
+    ulMaxNumDecodeSurfaces: c_uint,
+    ulClockRate: c_uint,
+    ulErrorThreshold: c_uint,
+    ulMaxDisplayDelay: c_uint,
+    uReserved1: [5]c_uint,
+    pUserData: ?*anyopaque,
+    pfnSequenceCallback: ?*const fn (?*anyopaque, ?*VideoFormat) callconv(.C) c_int,
+    pfnDecodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) c_int,
+    pfnDisplayPicture: ?*const fn (?*anyopaque, ?*ParserDispInfo) callconv(.C) c_int,
+    pvReserved2: [7]?*anyopaque,
+    pExtVideoInfo: ?*VideoFormatEx,
+};
+
+pub const PicParams = extern struct {
+    PicWidthInMbs: c_int,
+    FrameHeightInMbs: c_int,
+    CurrPicIdx: c_int,
+    field_pic_flag: c_int,
+    bottom_field_flag: c_int,
+    second_field: c_int,
+    nBitstreamDataLen: c_uint,
+    pBitstreamData: [*c]const u8,
+    nNumSlices: c_uint,
+    pSliceDataOffsets: [*c]const c_uint,
+    ref_pic_flag: c_int,
+    intra_pic_flag: c_int,
+    _Reserved: [30]c_uint,
+    CodecSpecific: extern union {
+        mpeg2: MPEG2PicParams,
+        h264: H264PicParams,
+        vc1: VC1PicParams,
+        mpeg4: MPEG4PicParams,
+        jpeg: JPEGPicParams,
+        hevc: HEVCPicParams,
+        vp8: VP8PicParams,
+        vp9: VP9PicParams,
+        _CodecReserved: [1024]c_uint,
+    },
+};
+
 pub const H264PicParams = extern struct {
     log2_max_frame_num_minus4: c_int,
     pic_order_cnt_type: c_int,
@@ -296,7 +355,7 @@ pub const H264PicParams = extern struct {
     pic_init_qs_minus26: i8,
     slice_group_change_rate_minus1: c_uint,
     fmo: extern union {
-        slice_group_map_addr: c_ulonglong,
+        slice_group_map_addr: u64,
         pMb2SliceGroupMap: [*c]const u8,
     },
     _Reserved: [12]c_uint,
@@ -462,51 +521,6 @@ pub const MPEG4PicParams = extern struct {
     gmc_enabled: c_int,
 };
 
-pub const PicParams = extern struct {
-    PicWidthInMbs: c_int,
-    FrameHeightInMbs: c_int,
-    CurrPicIdx: c_int,
-    field_pic_flag: c_int,
-    bottom_field_flag: c_int,
-    second_field: c_int,
-    nBitstreamDataLen: c_uint,
-    pBitstreamData: [*c]const u8,
-    nNumSlices: c_uint,
-    pSliceDataOffsets: [*c]const c_uint,
-    ref_pic_flag: c_int,
-    intra_pic_flag: c_int,
-    _Reserved: [30]c_uint,
-    CodecSpecific: extern union {
-        mpeg2: MPEG2PicParams,
-        h264: H264PicParams,
-        vc1: VC1PicParams,
-        mpeg4: MPEG4PicParams,
-        jpeg: JPEGPicParams,
-        hevc: HEVCPicParams,
-        vp8: VP8PicParams,
-        vp9: VP9PicParams,
-        _CodecReserved: [1024]c_uint,
-    },
-};
-
-pub const ProcParams = extern struct {
-    progressive_frame: c_int,
-    second_field: c_int,
-    top_field_first: c_int,
-    unpaired_field: c_int,
-    reserved_flags: c_uint,
-    reserved_zero: c_uint,
-    raw_input_dptr: c_ulonglong,
-    raw_input_pitch: c_uint,
-    raw_input_format: c_uint,
-    raw_output_dptr: c_ulonglong,
-    raw_output_pitch: c_uint,
-    _Reserved1: c_uint,
-    output_stream: CUstream,
-    _Reserved: [46]c_uint,
-    _Reserved2: [2]?*anyopaque,
-};
-
 pub const VC1PicParams = extern struct {
     ForwardRefIdx: c_int,
     BackwardRefIdx: c_int,
@@ -592,17 +606,83 @@ pub const VP9PicParams = extern struct {
     reserved128Bits: [4]c_uint,
 };
 
+pub const ProcParams = extern struct {
+    progressive_frame: c_int,
+    second_field: c_int,
+    top_field_first: c_int,
+    unpaired_field: c_int,
+    reserved_flags: c_uint,
+    reserved_zero: c_uint,
+    raw_input_dptr: u64,
+    raw_input_pitch: c_uint,
+    raw_input_format: c_uint,
+    raw_output_dptr: u64,
+    raw_output_pitch: c_uint,
+    _Reserved1: c_uint,
+    output_stream: CUstream,
+    _Reserved: [46]c_uint,
+    _Reserved2: [2]?*anyopaque,
+};
+
+pub const SourceDataPacket = extern struct {
+    flags: c_ulong,
+    payload_size: c_ulong,
+    payload: [*c]const u8,
+    timestamp: VideoTimestamp,
+};
+
+pub const VideoFormat = extern struct {
+    codec: VideoCodec,
+    frame_rate: extern struct {
+        numerator: c_uint,
+        denominator: c_uint,
+    },
+    progressive_sequence: u8,
+    bit_depth_luma_minus8: u8,
+    bit_depth_chroma_minus8: u8,
+    min_num_decode_surfaces: u8,
+    coded_width: c_uint,
+    coded_height: c_uint,
+    display_area: extern struct {
+        left: c_int,
+        top: c_int,
+        right: c_int,
+        bottom: c_int,
+    },
+    chroma_format: VideoChromaFormat,
+    bitrate: c_uint,
+    display_aspect_ratio: extern struct {
+        x: c_int,
+        y: c_int,
+    },
+    video_signal_description: extern struct {
+        bit_flags_1: u8,
+        color_primaries: u8,
+        transfer_characteristics: u8,
+        matrix_coefficients: u8,
+    },
+    seqhdr_data_length: c_uint,
+};
+
+pub const VideoFormatEx = extern struct {
+    format: VideoFormat,
+    raw_seqhdr_data: [1024]u8,
+};
+
 pub var cuvidGetDecoderCaps = ?*const fn (pdc: ?*DecodeCaps) Result;
 pub var cuvidCreateDecoder = ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result;
 pub var cuvidDestroyDecoder = ?*const fn (hDecoder: VideoDecoder) Result;
 pub var cuvidDecodePicture = ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result;
 pub var cuvidGetDecodeStatus = ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result;
-pub var cuvidMapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]c_ulonglong, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result;
-pub var cuvidUnmapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, DevPtr: c_ulonglong) Result;
-pub var cuvidCtxLockCreate = ?*const fn (pLock: [*c]VideoCtxLock, ctx: CUcontext) Result;
+pub var cuvidMapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result;
+pub var cuvidUnmapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result;
+pub var cuvidCtxLockCreate = ?*const fn (pLock: ?*VideoCtxLock, ctx: CUcontext) Result;
 pub var cuvidCtxLockDestroy = ?*const fn (lck: VideoCtxLock) Result;
 pub var cuvidCtxLock = ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result;
 pub var cuvidCtxUnlock = ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result;
+pub var cuvidCreateVideoParser = ?*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result;
+pub var cuvidParseVideoData = ?*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result;
+pub var cuvidDestroyVideoParser = ?*const fn (obj: VideoParser) Result;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
@@ -625,10 +705,13 @@ pub fn load() !void {
     cuvidDestroyDecoder = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder) Result, "cuvidDestroyDecoder") orelse @panic("cuvid library invalid");
     cuvidDecodePicture = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result, "cuvidDecodePicture") orelse @panic("cuvid library invalid");
     cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");
-    cuvidMapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]c_ulonglong, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result, "cuvidMapVideoFrame64") orelse @panic("cuvid library invalid");
-    cuvidUnmapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, DevPtr: c_ulonglong) Result, "cuvidUnmapVideoFrame64") orelse @panic("cuvid library invalid");
+    cuvidMapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result, "cuvidMapVideoFrame64") orelse @panic("cuvid library invalid");
+    cuvidUnmapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result, "cuvidUnmapVideoFrame64") orelse @panic("cuvid library invalid");
     cuvidCtxLockCreate = nvcuvid.lookup(*const fn (pLock: [*c]VideoCtxLock, ctx: CUcontext) Result, "cuvidCtxLockCreate") orelse @panic("cuvid library invalid");
     cuvidCtxLockDestroy = nvcuvid.lookup(*const fn (lck: VideoCtxLock) Result, "cuvidCtxLockDestroy") orelse @panic("cuvid library invalid");
     cuvidCtxLock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxLock") orelse @panic("cuvid library invalid");
     cuvidCtxUnlock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxUnlock") orelse @panic("cuvid library invalid");
+    cuvidCreateVideoParser = nvcuvid.lookup(*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result, "cuvidCreateVideoParser") orelse @panic("cuvid library invalid");
+    cuvidParseVideoData = nvcuvid.lookup(*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result, "cuvidParseVideoData") orelse @panic("cuvid library invalid");
+    cuvidDestroyVideoParser = nvcuvid.lookup(*const fn (obj: VideoParser) Result, "cuvidDestroyVideoParser") orelse @panic("cuvid library invalid");
 }
