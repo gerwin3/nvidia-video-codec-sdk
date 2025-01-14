@@ -10,8 +10,13 @@ pub fn main() !void {
 
     const allocator = general_purpose_allocator.allocator();
 
-    var decoder = try nvdec.Decoder.create(.{}, allocator);
-    defer decoder.deinit();
+    try nvdec.load();
+
+    var decoder = try nvdec.Decoder.create(.{
+        .codec = .h264,
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, allocator);
+    defer decoder.destroy();
 
     const file = try std.fs.cwd().openFile("rainbow.264", .{});
     defer file.close();
@@ -35,7 +40,7 @@ pub fn main() !void {
                 }
                 if (nal.items.len > 0) {
                     if (try decoder.decode(nal.items)) |frame| {
-                        handle_frame(&frame);
+                        handle_frame(frame);
                     }
                     nal.clearRetainingCapacity();
                     last_nal = index;
@@ -51,11 +56,11 @@ pub fn main() !void {
     }
 
     if (try decoder.decode(nal.items)) |frame| {
-        handle_frame(&frame);
+        handle_frame(frame);
     }
 
     while (try decoder.flush()) |frame| {
-        handle_frame(&frame);
+        handle_frame(frame);
     }
 }
 
@@ -63,7 +68,7 @@ pub fn main() !void {
 fn handle_frame(frame: *const nvdec.Frame) void {
     std.debug.print("yuv = ({}, {}, {})\n", .{
         frame.data.y[0],
-        frame.data.u[0],
-        frame.data.v[0],
+        frame.data.uv[0],
+        frame.data.uv[1],
     });
 }

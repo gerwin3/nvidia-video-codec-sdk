@@ -155,11 +155,20 @@ pub const VideoCtxLock = ?*anyopaque;
 
 pub const VideoTimestamp = c_longlong;
 
-pub const pkt_endofstream: c_int = 1;
-pub const pkt_timestamp: c_int = 2;
-pub const pkt_discontinuity: c_int = 4;
-pub const pkt_endofpicture: c_int = 8;
-pub const pkt_notify_eos: c_int = 16;
+pub const packet_flags = struct {
+    pub const endofstream: c_uint = 1;
+    pub const timestamp: c_uint = 2;
+    pub const discontinuity: c_uint = 4;
+    pub const endofpicture: c_uint = 8;
+    pub const notify_eos: c_uint = 16;
+};
+
+pub const create_flags = struct {
+    pub const default: c_uint = 0;
+    pub const prefer_CUDA: c_uint = 1;
+    pub const prefer_DXVA: c_uint = 2;
+    pub const prefer_CUVID: c_uint = 4;
+};
 
 pub const CreateInfo = extern struct {
     ulWidth: c_ulong,
@@ -669,36 +678,36 @@ pub const VideoFormatEx = extern struct {
     raw_seqhdr_data: [1024]u8,
 };
 
-pub var cuvidGetDecoderCaps = ?*const fn (pdc: ?*DecodeCaps) Result;
-pub var cuvidCreateDecoder = ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result;
-pub var cuvidDestroyDecoder = ?*const fn (hDecoder: VideoDecoder) Result;
-pub var cuvidDecodePicture = ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result;
-pub var cuvidGetDecodeStatus = ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result;
-pub var cuvidMapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result;
-pub var cuvidUnmapVideoFrame64 = ?*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result;
-pub var cuvidCtxLockCreate = ?*const fn (pLock: ?*VideoCtxLock, ctx: CUcontext) Result;
-pub var cuvidCtxLockDestroy = ?*const fn (lck: VideoCtxLock) Result;
-pub var cuvidCtxLock = ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result;
-pub var cuvidCtxUnlock = ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result;
-pub var cuvidCreateVideoParser = ?*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result;
-pub var cuvidParseVideoData = ?*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result;
-pub var cuvidDestroyVideoParser = ?*const fn (obj: VideoParser) Result;
+pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
+pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result = null;
+pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) Result = null;
+pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result = null;
+pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
+pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result = null;
+pub var cuvidUnmapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result = null;
+pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: CUcontext) Result = null;
+pub var cuvidCtxLockDestroy: ?*const fn (lck: VideoCtxLock) Result = null;
+pub var cuvidCtxLock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
+pub var cuvidCtxUnlock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
+pub var cuvidCreateVideoParser: ?*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result = null;
+pub var cuvidParseVideoData: ?*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result = null;
+pub var cuvidDestroyVideoParser: ?*const fn (obj: VideoParser) Result = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
     const std = @import("std");
     const builtin = @import("builtin");
 
-    try comptime switch (builtin.target.os) {
+    _ = try switch (builtin.target.os.tag) {
         .linux, .macos => std.DynLib.open("libcuda.so.1"),
         .windows => std.DynLib.open("nvcuda.dll"),
-        else => @compileError("unsupported operating system"),
+        else => @panic("unsupported operating system"),
     };
 
-    var nvcuvid = try comptime switch (builtin.target.os) {
+    var nvcuvid = try switch (builtin.target.os.tag) {
         .linux, .macos => std.DynLib.open("libnvcuvid.so.1"),
         .windows => std.DynLib.open("nvcuvid.dll"),
-        else => @compileError("unsupported operating system"),
+        else => @panic("unsupported operating system"),
     };
     cuvidGetDecoderCaps = nvcuvid.lookup(*const fn (pdc: ?*DecodeCaps) Result, "cuvidGetDecoderCaps") orelse @panic("cuvid library invalid");
     cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
