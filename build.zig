@@ -44,6 +44,16 @@ fn addNvDec(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     });
     nvdec.addImport("nvdec_bindings", nvdec_bindings);
 
+    // Example
+    const example_decode_rainbow = b.addExecutable(.{
+        .name = "example_decode_rainbow",
+        .root_source_file = b.path("examples/decode_rainbow.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example_decode_rainbow.root_module.addImport("nvdec", nvdec);
+    b.installArtifact(example_decode_rainbow);
+
     return nvdec;
 }
 
@@ -65,6 +75,16 @@ fn addNvEnc(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .optimize = optimize,
     });
     nvenc.addImport("nvenc_bindings", nvenc_bindings);
+
+    // // Example
+    // const example_encode_rainbow = b.addExecutable(.{
+    //     .name = "example_encode_rainbow",
+    //     .root_source_file = b.path("examples/encode_rainbow.zig"),
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // example_encode_rainbow.root_module.addImport("nvenc", nvenc);
+    // b.installArtifact(example_encode_rainbow);
 
     return nvenc;
 }
