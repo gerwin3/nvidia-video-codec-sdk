@@ -18,7 +18,7 @@ pub const Encoder = struct {
         var params = std.mem.zeroes(nvenc_bindings.OpenSessionExParams);
         params.version = nvenc_bindings.open_encode_session_ex_params_ver;
         params.deviceType = .cuda;
-        params.device = null; // TODO why is this poiner all of the sudden?
+        params.device = null; // TODO this is where the cuda context goes
         params.apiVersion = nvenc_bindings.version;
 
         try status(nvenc_bindings.nvEncOpenEncodeSessionEx.?(&params, &encoder));
