@@ -64,8 +64,11 @@ pub const Decoder = struct {
     /// Index to last returned frame. This frame needs to be unmapped on next decode iteration.
     frame_in_flight: ?usize = null,
 
+    error_state: ?Error = null,
+
     pub fn create(options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
         var self = try allocator.create(Decoder);
+        errdefer allocator.destroy(self);
         self.* = .{ .allocator = allocator };
 
         var parser_params = std.mem.zeroes(nvdec_bindings.ParserParams);
@@ -109,7 +112,14 @@ pub const Decoder = struct {
             packet.payload_size = 0;
             packet.flags = nvdec_bindings.packet_flags.timestamp | nvdec_bindings.packet_flags.endofstream;
         }
+
         try result(nvdec_bindings.cuvidParseVideoData.?(self.parser, &packet));
+
+        // handle possible errors in callback
+        if (self.error_state) |err| {
+            self.error_state = null;
+            return err;
+        }
 
         return try self.frame_buffer_next();
     }
@@ -144,6 +154,8 @@ pub const Decoder = struct {
     fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
         var self: *Decoder = @ptrCast(@alignCast(context));
 
+        if (self.error_state != null) return 0;
+
         // self.decoder != null means handleSequenceCallback was called before,
         // which means the deocder wants to recongfigure which is not implemented
         // at this time
@@ -162,7 +174,10 @@ pub const Decoder = struct {
         decode_caps.eCodecType = format.?.codec;
         decode_caps.eChromaFormat = format.?.chroma_format;
         decode_caps.nBitDepthMinus8 = format.?.bit_depth_luma_minus8;
-        result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps)) catch return 0;
+        result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
 
         if (decode_caps.bIsSupported == 0) {
             nvdec_log.err("codec not supported (codec = {})", .{decode_caps.eCodecType});
@@ -205,19 +220,31 @@ pub const Decoder = struct {
             .height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
         };
 
-        result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info)) catch return 0;
+        result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
 
         return num_decode_surfaces;
     }
 
     fn handleDecodePicture(context: ?*anyopaque, pic_params: ?*nvdec_bindings.PicParams) callconv(.C) c_int {
         const self: *Decoder = @ptrCast(@alignCast(context));
-        result(nvdec_bindings.cuvidDecodePicture.?(self.decoder, pic_params)) catch return 0;
+
+        if (self.error_state != null) return 0;
+
+        result(nvdec_bindings.cuvidDecodePicture.?(self.decoder, pic_params)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+
         return 1;
     }
 
     fn handleDisplayPicture(context: ?*anyopaque, parser_disp_info: ?*nvdec_bindings.ParserDispInfo) callconv(.C) c_int {
         var self: *Decoder = @ptrCast(@alignCast(context));
+
+        if (self.error_state != null) return 0;
 
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.?.progressive_frame;
@@ -238,11 +265,19 @@ pub const Decoder = struct {
             &frame_data_ptr_u64,
             &frame_pitch,
             &proc_params,
-        )) catch return 0;
+        )) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+
         std.debug.assert(frame_data_ptr_u64 != 0);
 
         var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.?.picture_index, &get_decode_status)) catch return 0;
+        result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.?.picture_index, &get_decode_status)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
