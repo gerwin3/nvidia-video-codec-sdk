@@ -12,12 +12,12 @@ pub const load = nvdec_bindings.load;
 pub const Codec = nvdec_bindings.VideoCodec;
 
 /// NV12 decoded frame.
-/// Important: The data is behind a device pointer!
+/// Important: The data is stored on device and cannot be accessed directly.
 pub const Frame = struct {
     data: struct {
-        y: []u8,
+        y: []volatile u8,
         /// U and V planes are weaved in NV12.
-        uv: []u8,
+        uv: []volatile u8,
     },
     /// Pitch means stride in NVIDIA speak.
     /// NV12 frames have the same stride for the Y pland and UV plane. UV values are weaved.
@@ -27,10 +27,6 @@ pub const Frame = struct {
         height: u32,
     },
     timestamp: u64,
-
-    inline fn toDevicePtrU64(self: *const Frame) u64 {
-        return @intCast(@intFromPtr(self.data.y.ptr));
-    }
 };
 
 pub const DecoderOptions = struct {
@@ -166,7 +162,7 @@ pub const Decoder = struct {
     fn frame_buffer_unmap_in_flight(self: *Decoder) !void {
         if (self.frame_in_flight) |in_flight| {
             const frame = &self.frame_buffer[in_flight].?;
-            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame.toDevicePtrU64()));
+            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, cuda.devicePtrFromSlice(frame.data.y)));
             self.frame_buffer[in_flight] = null;
         }
     }
@@ -294,20 +290,19 @@ pub const Decoder = struct {
         // then it's okay since there is no points in having separate streams anyway.
         // proc_params.output_stream = m_cuvidStream;
 
-        var frame_data_ptr_u64: u64 = 0;
+        var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
         result(nvdec_bindings.cuvidMapVideoFrame64.?(
             self.decoder,
             parser_disp_info.?.picture_index,
-            &frame_data_ptr_u64,
+            &frame_data,
             &frame_pitch,
             &proc_params,
         )) catch |err| {
             self.error_state = err;
             return 0;
         };
-
-        std.debug.assert(frame_data_ptr_u64 != 0);
+        std.debug.assert(frame_data != 0);
 
         var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
         result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.?.picture_index, &get_decode_status)) catch |err| {
@@ -318,7 +313,6 @@ pub const Decoder = struct {
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
-        const frame_data_ptr: [*]u8 = @ptrFromInt(frame_data_ptr_u64);
         const width = self.frame_dims.?.width;
         const height = self.frame_dims.?.height;
         const pitch: u32 = @intCast(frame_pitch);
@@ -332,8 +326,8 @@ pub const Decoder = struct {
 
             self.frame_buffer[frame_buffer_index] = .{
                 .data = .{
-                    .y = frame_data_ptr[0 .. height * pitch],
-                    .uv = frame_data_ptr[uv_offset .. uv_offset + (height * pitch)],
+                    .y = cuda.sliceFromDevicePtr(frame_data, 0, height * pitch),
+                    .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + (height * pitch)),
                 },
                 .pitch = @intCast(frame_pitch),
                 .dims = .{

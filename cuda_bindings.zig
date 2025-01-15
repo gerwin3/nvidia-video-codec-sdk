@@ -1,3 +1,12 @@
+pub const enum_CUmemorytype_enum = c_uint;
+
+pub const MemoryType = enum(c_uint) {
+    host = 1,
+    device = 2,
+    array = 3,
+    unified = 4,
+};
+
 pub const Result = enum(c_uint) {
     success = 0,
     invalid_value = 1,
@@ -98,15 +107,37 @@ pub const Result = enum(c_uint) {
     unknown = 999,
 };
 
-pub const Device = c_int;
+pub const Array = ?*opaque {};
 pub const Context = ?*opaque {};
+pub const Device = c_int;
+pub const DevicePtr = c_ulonglong;
 pub const Stream = ?*opaque {};
 
+pub const Memcpy2D = extern struct {
+    srcXInBytes: usize,
+    srcY: usize,
+    srcMemoryType: MemoryType,
+    srcHost: ?*const anyopaque,
+    srcDevice: DevicePtr,
+    srcArray: Array,
+    srcPitch: usize,
+    dstXInBytes: usize,
+    dstY: usize,
+    dstMemoryType: MemoryType,
+    dstHost: ?*anyopaque,
+    dstDevice: DevicePtr,
+    dstArray: Array,
+    dstPitch: usize,
+    WidthInBytes: usize,
+    Height: usize,
+};
+
 pub var cuInit: ?*const fn (Flags: c_uint) Result = null;
-pub var cuCtxCreate_v2: ?*const fn (pctx: [*c]Context, flags: c_uint, dev: Device) Result = null;
+pub var cuCtxCreate_v2: ?*const fn (pctx: ?*Context, flags: c_uint, dev: Device) Result = null;
 pub var cuCtxDestroy_v2: ?*const fn (ctx: Context) Result = null;
 pub var cuCtxPushCurrent_v2: ?*const fn (ctx: Context) Result = null;
-pub var cuCtxPopCurrent_v2: ?*const fn (pctx: [*c]Context) Result = null;
+pub var cuCtxPopCurrent_v2: ?*const fn (pctx: ?*Context) Result = null;
+pub var cuMemcpy2D_v2: ?*const fn (pCopy: ?*const Memcpy2D) Result = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
@@ -124,4 +155,5 @@ pub fn load() !void {
     cuCtxDestroy_v2 = cuda.lookup(*const fn (ctx: Context) Result, "cuCtxDestroy_v2") orelse @panic("cuda library invalid");
     cuCtxPushCurrent_v2 = cuda.lookup(*const fn (ctx: Context) Result, "cuCtxPushCurrent_v2") orelse @panic("cuda library invalid");
     cuCtxPopCurrent_v2 = cuda.lookup(*const fn (pctx: [*c]Context) Result, "cuCtxPopCurrent_v2") orelse @panic("cuda library invalid");
+    cuMemcpy2D_v2 = cuda.lookup(*const fn (pCopy: ?*const Memcpy2D) Result, "cuMemcpy2D_v2") orelse @panic("cuda library invalid");
 }

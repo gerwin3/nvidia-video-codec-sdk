@@ -42,7 +42,7 @@ pub fn main() !void {
                 }
                 if (nal.items.len > 0) {
                     if (try decoder.decode(nal.items)) |frame| {
-                        handle_frame(frame);
+                        try handle_frame(decoder.context, frame);
                     }
                     nal.clearRetainingCapacity();
                     last_nal = index;
@@ -58,19 +58,43 @@ pub fn main() !void {
     }
 
     if (try decoder.decode(nal.items)) |frame| {
-        handle_frame(frame);
+        try handle_frame(decoder.context, frame);
     }
 
     while (try decoder.flush()) |frame| {
-        handle_frame(frame);
+        try handle_frame(decoder.context, frame);
     }
 }
 
 /// Print YUV values of the frame.
-fn handle_frame(frame: *const nvdec.Frame) void {
+fn handle_frame(cuda_context: nvdec.cuda.Context, frame: *const nvdec.Frame) !void {
+    try cuda_context.push();
+
+    try nvdec.cuda.copy2D(
+        .device_to_host{
+            .src = frame.y,
+            .dst = xxx,
+        },
+        frame.pitch,
+        frame.dims.width,
+        frame.dims.height,
+    );
+
+    try nvdec.cuda.copy2D(
+        .device_to_host{
+            .src = frame.y,
+            .dst = xxx,
+        },
+        frame.pitch,
+        frame.dims.width,
+        frame.dims.height,
+    );
+
     std.debug.print("yuv = ({}, {}, {})\n", .{
         frame.data.y[0],
         frame.data.uv[0],
         frame.data.uv[1],
     });
+
+    try cuda_context.push();
 }
