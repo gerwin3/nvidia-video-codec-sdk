@@ -43,9 +43,74 @@ const num_output_surfaces = 2;
 /// NVDEC Video Decoder.
 /// Decoder is not thread safe.
 pub const Decoder = struct {
-    const FrameBufferItem = struct {
-        frame: Frame = undefined,
-        valid: bool = false,
+    /// Helper struct for frame buffering.
+    /// This has gotten quite complex so refactoring it out made it easier to reason about.
+    pub const Buffer = struct {
+        items: [num_output_surfaces]struct {
+            frame: Frame,
+            valid: bool,
+        },
+        cur_borrowed: ?usize,
+
+        pub fn init() Buffer {
+            var buffer = Buffer{
+                .items = undefined,
+                .cur_borrowed = null,
+            };
+            @memset(&buffer.items, .{ .frame = undefined, .valid = false });
+            return buffer;
+        }
+
+        /// Make sure to also call invalidate_borrowed_frame() before calling deinit.
+        pub fn deinit(self: *Buffer) void {
+            // just some checks:
+            // - no frame may be borrowed at this time or the caller forgot to invalidate the
+            //   borrowed frame before deinit
+            // - no frames may be active or the caller may have forgotten to flush the decoder
+            std.debug.assert(self.cur_borrowed == null);
+            const next_item_should_not_be_there = self.next() catch |err| {
+                nvdec_log.err("failed to pull next item during buffer deinit (err = {})", .{err});
+            };
+            std.debug.assert(next_item_should_not_be_there == null);
+        }
+
+        pub fn push(self: *Buffer, frame: Frame) !void {
+            for (0..self.items.len) |index| {
+                if (self.items[index].valid)
+                    continue;
+
+                self.items[index] = .{ .valid = true, .frame = frame };
+                return;
+            }
+
+            nvdec_log.err("frame buffer full (len = {})", .{self.items.len});
+            return Error.FrameBufferFull;
+        }
+
+        pub fn next(self: *Buffer) !?*const Frame {
+            std.debug.assert(self.cur_borrowed == null);
+
+            for (0..self.items.len) |index| {
+                if (self.items[index].valid) {
+                    self.cur_borrowed = index;
+                    return &self.items[index].frame;
+                }
+            }
+            return null;
+        }
+
+        pub fn invalidate_borrowed_frame(self: *Buffer, inner_decoder: nvdec_bindings.VideoDecoder) !void {
+            if (self.cur_borrowed) |cur_borrowed| {
+                std.debug.assert(self.items[cur_borrowed].valid);
+
+                try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
+                    inner_decoder,
+                    cuda.devicePtrFromSlice(self.items[cur_borrowed].frame.data.y),
+                ));
+                self.items[cur_borrowed].valid = false;
+                self.cur_borrowed = null;
+            }
+        }
     };
 
     context: cuda.Context,
@@ -54,17 +119,12 @@ pub const Decoder = struct {
 
     allocator: std.mem.Allocator,
 
+    buffer: Buffer,
     surface_info: ?struct {
         frame_width: u32,
         frame_height: u32,
         surface_height: u32,
     } = null,
-
-    /// Holds all frames that have been decoded but not yet returned to caller.
-    frame_buffer: [num_output_surfaces]FrameBufferItem = [_]FrameBufferItem{.{}} ** num_output_surfaces,
-    /// Index to last returned frame. This frame needs to be unmapped on next decode iteration.
-    frame_in_flight: ?usize = null,
-
     error_state: ?Error = null,
 
     pub fn create(options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
@@ -72,11 +132,16 @@ pub const Decoder = struct {
         errdefer allocator.destroy(self);
 
         const context = try cuda.Context.init(options.device);
+        errdefer context.deinit();
+
+        var buffer = Buffer.init();
+        errdefer buffer.deinit();
+
         self.* = .{
             .context = context,
+            .buffer = buffer,
             .allocator = allocator,
         };
-        errdefer context.deinit();
 
         var parser_params = std.mem.zeroes(nvdec_bindings.ParserParams);
         parser_params.CodecType = options.codec;
@@ -99,10 +164,9 @@ pub const Decoder = struct {
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        self.frame_buffer_unmap_in_flight() catch @panic("failed to unmap in flight frame");
-        // Check there are no more frames in the buffer. Otherwise the caller may have forgotten
-        // to flush before destorying.
-        std.debug.assert(self.frame_buffer_next() catch @panic("frame buffer error during destroy") == null);
+        self.buffer.invalidate_borrowed_frame(self.decoder) catch |err| {
+            nvdec_log.err("failed to invalidate borrowed frame (err = {})", .{err});
+        };
 
         if (self.parser != null) {
             result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
@@ -115,14 +179,15 @@ pub const Decoder = struct {
             };
         }
 
+        self.buffer.deinit();
         self.context.deinit();
+
         self.allocator.destroy(self);
     }
 
     pub fn decode(self: *Decoder, data: []const u8) !?*const Frame {
-        // XXX: It is very important that we first call frame here since it will unmap a possibly
-        // in flight frame as well as flush the buffer before moving on with decoding.
-        if (try self.frame_buffer_next()) |frame| return frame;
+        try self.buffer.invalidate_borrowed_frame(self.decoder);
+        if (try self.buffer.next()) |frame| return frame;
 
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
         if (data.len > 0) {
@@ -137,44 +202,19 @@ pub const Decoder = struct {
 
         try result(nvdec_bindings.cuvidParseVideoData.?(self.parser, &packet));
 
-        // handle possible errors in callback
+        // handle possible errors from one of the callbacks
         if (self.error_state) |err| {
             self.error_state = null;
             return err;
         }
 
-        return try self.frame_buffer_next();
+        return try self.buffer.next();
     }
 
     /// Before ending decoding call flush in a loop until it returns null.
     pub fn flush(self: *Decoder) !?*const Frame {
         // calling decode with an empty slice means flush
         return self.decode(&.{});
-    }
-
-    /// Go through frame buffer and unmap in flight frame, then return pointer to next mapped frame.
-    fn frame_buffer_next(self: *Decoder) !?*const Frame {
-        try self.frame_buffer_unmap_in_flight();
-
-        for (0..self.frame_buffer.len) |index| {
-            if (self.frame_buffer[index].valid) {
-                self.frame_in_flight = index;
-                return &self.frame_buffer[index].frame;
-            }
-        }
-        return null;
-    }
-
-    fn frame_buffer_unmap_in_flight(self: *Decoder) !void {
-        if (self.frame_in_flight) |in_flight| {
-            std.debug.assert(self.frame_buffer[in_flight].valid);
-            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
-                self.decoder,
-                cuda.devicePtrFromSlice(self.frame_buffer[in_flight].frame.data.y),
-            ));
-            self.frame_buffer[in_flight].valid = false;
-            self.frame_in_flight = null;
-        }
     }
 
     fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
@@ -333,28 +373,23 @@ pub const Decoder = struct {
         // to the UV plane (which contains both U and V) using the surface height
         const uv_offset = surface_height * pitch;
 
-        for (0..num_output_surfaces) |frame_buffer_index| {
-            if (self.frame_buffer[frame_buffer_index].valid) continue;
-            self.frame_buffer[frame_buffer_index] = .{
-                .valid = true,
-                .frame = .{
-                    .data = .{
-                        .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
-                        .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
-                    },
-                    .pitch = @intCast(frame_pitch),
-                    .dims = .{
-                        .width = frame_width,
-                        .height = frame_height,
-                    },
-                    .timestamp = @intCast(parser_disp_info.?.timestamp),
-                },
-            };
-            return 1;
-        }
+        self.buffer.push(.{
+            .data = .{
+                .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
+                .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
+            },
+            .pitch = @intCast(frame_pitch),
+            .dims = .{
+                .width = frame_width,
+                .height = frame_height,
+            },
+            .timestamp = @intCast(parser_disp_info.?.timestamp),
+        }) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
 
-        nvdec_log.err("frame buffer full (num output surfaces = {})", .{num_output_surfaces});
-        return 0;
+        return 1;
     }
 };
 
@@ -558,4 +593,4 @@ pub const Error = error{
     InvalidResourceType,
     InvalidResourceConfiguration,
     Unknown,
-} || cuda.Error;
+} || cuda.Error || error{FrameBufferFull};
