@@ -1,6 +1,32 @@
-pub const api_major_version = 9;
-pub const api_minor_version = 0;
-pub const api_version = api_major_version | (api_minor_version << 24);
+pub const api_major_version: u32 = 9;
+pub const api_minor_version: u32 = 0;
+pub const api_version: u32 = api_major_version | (api_minor_version << 24);
+
+pub inline fn struct_version(v: u32) u32 {
+    return api_version | (v << 16) | (0x7 << 28);
+}
+
+pub const caps_param_ver = struct_version(1);
+pub const encode_out_params_ver = struct_version(1);
+pub const create_input_buffer_ver = struct_version(1);
+pub const create_bitstream_buffer_ver = struct_version(1);
+pub const create_mv_buffer_ver = struct_version(1);
+pub const rc_params_ver = struct_version(1);
+pub const config_ver = struct_version(7) | (1 << 31);
+pub const initialize_params_ver = struct_version(5) | (1 << 31);
+pub const reconfigure_params_ver = struct_version(1) | (1 << 31);
+pub const preset_config_ver = struct_version(4) | (1 << 31);
+pub const pic_params_ver = struct_version(4) | (1 << 31);
+pub const meonly_params_ver = struct_version(3);
+pub const lock_bitstream_ver = struct_version(1);
+pub const lock_input_buffer_ver = struct_version(1);
+pub const map_input_resource_ver = struct_version(4);
+pub const register_resource_ver = struct_version(3);
+pub const stat_ver = struct_version(1);
+pub const sequence_param_payload_ver = struct_version(1);
+pub const event_params_ver = struct_version(1);
+pub const open_encode_session_ex_params_ver = struct_version(1);
+pub const api_function_list_ver = struct_version(2);
 
 pub const BFrameRefMode = enum(c_uint) {
     disabled = 0,
@@ -638,6 +664,13 @@ pub fn load() !void {
         },
         else => @compileError("unsupported operating system"),
     };
+
+    const NvEncodeAPIGetMaxSupportedVersion = dylib.lookup(*const fn (version: u32) Status, "NvEncodeAPIGetMaxSupportedVersion") orelse @panic("invalid libnvidia-encode");
+    var version_lib = 0;
+    if (NvEncodeAPIGetMaxSupportedVersion(&version_lib) != .success)
+        @panic("NvEncodeAPIGetMaxSupportedVersion failed");
+    if (((api_major_version << 4) | api_minor_version) > version)
+        return error.DriverVersionTooOld;
 
     const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");
     var function_list = std.mem.zeroes(ApiFunctionList);
