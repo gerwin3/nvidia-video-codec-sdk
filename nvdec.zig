@@ -43,19 +43,25 @@ const num_output_surfaces = 2;
 /// NVDEC Video Decoder.
 /// Decoder is not thread safe.
 pub const Decoder = struct {
+    const FrameBufferItem = struct {
+        frame: Frame = undefined,
+        valid: bool = false,
+    };
+
     context: cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
     decoder: nvdec_bindings.VideoDecoder = null,
 
     allocator: std.mem.Allocator,
 
-    frame_dims: ?struct {
-        width: u32,
-        height: u32,
+    surface_info: ?struct {
+        frame_width: u32,
+        frame_height: u32,
+        surface_height: u32,
     } = null,
 
     /// Holds all frames that have been decoded but not yet returned to caller.
-    frame_buffer: [num_output_surfaces]?Frame = [_]?Frame{null} ** num_output_surfaces,
+    frame_buffer: [num_output_surfaces]FrameBufferItem = [_]FrameBufferItem{.{}} ** num_output_surfaces,
     /// Index to last returned frame. This frame needs to be unmapped on next decode iteration.
     frame_in_flight: ?usize = null,
 
@@ -150,10 +156,10 @@ pub const Decoder = struct {
     fn frame_buffer_next(self: *Decoder) !?*const Frame {
         try self.frame_buffer_unmap_in_flight();
 
-        for (0.., self.frame_buffer) |index, frame_slot| {
-            if (frame_slot) |frame| {
+        for (0..self.frame_buffer.len) |index| {
+            if (self.frame_buffer[index].valid) {
                 self.frame_in_flight = index;
-                return &frame;
+                return &self.frame_buffer[index].frame;
             }
         }
         return null;
@@ -161,9 +167,13 @@ pub const Decoder = struct {
 
     fn frame_buffer_unmap_in_flight(self: *Decoder) !void {
         if (self.frame_in_flight) |in_flight| {
-            const frame = &self.frame_buffer[in_flight].?;
-            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, cuda.devicePtrFromSlice(frame.data.y)));
-            self.frame_buffer[in_flight] = null;
+            std.debug.assert(self.frame_buffer[in_flight].valid);
+            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
+                self.decoder,
+                cuda.devicePtrFromSlice(self.frame_buffer[in_flight].frame.data.y),
+            ));
+            self.frame_buffer[in_flight].valid = false;
+            self.frame_in_flight = null;
         }
     }
 
@@ -240,9 +250,10 @@ pub const Decoder = struct {
 
         // frame_dims stores calculated frame dimensions for later when we need them to
         // correctly slice frame data
-        self.frame_dims = .{
-            .width = @intCast(format.?.display_area.right - format.?.display_area.left),
-            .height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
+        self.surface_info = .{
+            .frame_width = @intCast(format.?.display_area.right - format.?.display_area.left),
+            .frame_height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
+            .surface_height = @intCast(format.?.coded_height),
         };
 
         self.context.push() catch |err| {
@@ -313,30 +324,32 @@ pub const Decoder = struct {
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
-        const width = self.frame_dims.?.width;
-        const height = self.frame_dims.?.height;
+        const frame_width = self.surface_info.?.frame_width;
+        const frame_height = self.surface_info.?.frame_height;
+        const surface_height = self.surface_info.?.surface_height;
         const pitch: u32 = @intCast(frame_pitch);
+
         // nv12 is a biplanar format so all we need here is to calculate the offset
-        // to the UV plane (which contains both U and V)
-        const uv_offset = height * pitch;
+        // to the UV plane (which contains both U and V) using the surface height
+        const uv_offset = surface_height * pitch;
 
         for (0..num_output_surfaces) |frame_buffer_index| {
-            if (self.frame_buffer[frame_buffer_index] != null)
-                continue;
-
+            if (self.frame_buffer[frame_buffer_index].valid) continue;
             self.frame_buffer[frame_buffer_index] = .{
-                .data = .{
-                    .y = cuda.sliceFromDevicePtr(frame_data, 0, height * pitch),
-                    .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + (height * pitch)),
+                .valid = true,
+                .frame = .{
+                    .data = .{
+                        .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
+                        .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
+                    },
+                    .pitch = @intCast(frame_pitch),
+                    .dims = .{
+                        .width = frame_width,
+                        .height = frame_height,
+                    },
+                    .timestamp = @intCast(parser_disp_info.?.timestamp),
                 },
-                .pitch = @intCast(frame_pitch),
-                .dims = .{
-                    .width = width,
-                    .height = height,
-                },
-                .timestamp = @intCast(parser_disp_info.?.timestamp),
             };
-
             return 1;
         }
 

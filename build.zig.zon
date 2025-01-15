@@ -1,13 +1,18 @@
 .{
     .name = "nvidia-video-codec-sdk",
-    // TODO
-    .version = "0.0.0",
+    .version = "9.0.20",
     .dependencies = .{},
     .paths = .{
+        "LICENSE-APACHE",
+        "LICENSE-MIT",
+        "README.md",
         "build.zig",
         "build.zig.zon",
-        "include",
-        "README.md",
-        // TODO license
+        "cuda.zig",
+        "cuda_bindings.zig",
+        "nvdec.zig",
+        "nvdec_bindings.zig",
+        "nvenc.zig",
+        "nvenc_bindings.zig",
     },
 }

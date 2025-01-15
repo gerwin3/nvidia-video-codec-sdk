@@ -51,88 +51,92 @@ pub inline fn devicePtrFromSlice(slice: []volatile u8) DevicePtr {
 }
 
 pub fn copy2D(
-    mem_args: union(enum) {
+    copy: union(enum) {
         host_to_device: struct {
             src: []const u8,
             dst: []volatile u8,
         },
         device_to_host: struct {
-            src: []const volatile u8,
+            src: []volatile u8,
             dst: []u8,
         },
         device_to_device: struct {
-            src: []const volatile u8,
+            src: []volatile u8,
             dst: []volatile u8,
         },
     },
-    src_pitch: usize,
-    dst_pitch: usize,
-    width: usize,
-    height: usize,
+    args: struct {
+        src_pitch: usize,
+        dst_pitch: usize,
+        dims: struct {
+            width: usize,
+            height: usize,
+        },
+    },
 ) !void {
-    std.debug.assert(width <= src_pitch and width <= dst_pitch);
-    const src_len = switch (mem_args) {
-        inline else => |args| args.src.len,
+    std.debug.assert(args.dims.width <= args.src_pitch and args.dims.width <= args.dst_pitch);
+    const src_len = switch (copy) {
+        inline else => |copy_args| copy_args.src.len,
     };
-    const dst_len = switch (mem_args) {
-        inline else => |args| args.dst.len,
+    std.debug.assert(src_len == (args.src_pitch * args.dims.height));
+    const dst_len = switch (copy) {
+        inline else => |copy_args| copy_args.dst.len,
     };
-    std.debug.assert(src_len == (src_pitch * height));
-    std.debug.assert(dst_len == (dst_pitch * height));
-    const params = switch (mem_args) {
-        .host_to_device => |args| cuda_bindings.Memcpy2D{
+    std.debug.assert(dst_len == (args.dst_pitch * args.dims.height));
+    const params = switch (copy) {
+        .host_to_device => |copy_args| cuda_bindings.Memcpy2D{
             .srcXInBytes = 0,
             .srcY = 0,
             .srcMemoryType = cuda_bindings.MemoryType.host,
-            .srcHost = args.src.ptr,
+            .srcHost = copy_args.src.ptr,
             .srcDevice = 0,
             .srcArray = std.mem.zeroes(cuda_bindings.Array),
-            .srcPitch = src_pitch,
+            .srcPitch = args.src_pitch,
             .dstXInBytes = 0,
             .dstY = 0,
             .dstMemoryType = cuda_bindings.MemoryType.device,
             .dstHost = null,
-            .dstDevice = devicePtrFromSlice(args.dst),
+            .dstDevice = devicePtrFromSlice(copy_args.dst),
             .dstArray = std.mem.zeroes(cuda_bindings.Array),
-            .dstPitch = dst_pitch,
-            .WidthInBytes = width,
-            .Height = height,
+            .dstPitch = args.dst_pitch,
+            .WidthInBytes = args.dims.width,
+            .Height = args.dims.height,
         },
-        .device_to_host => |args| cuda_bindings.Memcpy2D{
+        .device_to_host => |copy_args| cuda_bindings.Memcpy2D{
             .srcXInBytes = 0,
             .srcY = 0,
             .srcMemoryType = cuda_bindings.MemoryType.device,
             .srcHost = null,
-            .srcDevice = devicePtrFromSlice(args.src),
+            .srcDevice = devicePtrFromSlice(copy_args.src),
             .srcArray = std.mem.zeroes(cuda_bindings.Array),
-            .srcPitch = src_pitch,
+            .srcPitch = args.src_pitch,
             .dstXInBytes = 0,
             .dstY = 0,
             .dstMemoryType = cuda_bindings.MemoryType.host,
-            .dstHost = args.dst.ptr,
+            .dstHost = copy_args.dst.ptr,
             .dstDevice = 0,
             .dstArray = std.mem.zeroes(cuda_bindings.Array),
-            .dstPitch = dst_pitch,
-            .WidthInBytes = width,
-            .Height = height,
+            .dstPitch = args.dst_pitch,
+            .WidthInBytes = args.dims.width,
+            .Height = args.dims.height,
         },
-        .device_to_device => |args| cuda_bindings.Memcpy2D{
+        .device_to_device => |copy_args| cuda_bindings.Memcpy2D{
             .srcXInBytes = 0,
             .srcY = 0,
             .srcMemoryType = cuda_bindings.MemoryType.device,
-            .srcHost = 0,
-            .srcDevice = devicePtrFromSlice(args.src),
+            .srcHost = null,
+            .srcDevice = devicePtrFromSlice(copy_args.src),
             .srcArray = std.mem.zeroes(cuda_bindings.Array),
-            .srcPitch = src_pitch,
+            .srcPitch = args.src_pitch,
             .dstXInBytes = 0,
             .dstY = 0,
             .dstMemoryType = cuda_bindings.MemoryType.device,
             .dstHost = null,
-            .dstDevice = devicePtrFromSlice(args.dst),
+            .dstDevice = devicePtrFromSlice(copy_args.dst),
             .dstArray = std.mem.zeroes(cuda_bindings.Array),
-            .dstPitch = dst_pitch,
-            .WidthInBytes = width,
-            .Height = height,
+            .dstPitch = args.dst_pitch,
+            .WidthInBytes = args.dims.width,
+            .Height = args.dims.height,
         },
     };
     try result(cuda_bindings.cuMemcpy2D_v2.?(&params));

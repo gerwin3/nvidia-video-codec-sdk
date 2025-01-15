@@ -4,11 +4,33 @@ const std = @import("std");
 
 const nvdec = @import("nvdec");
 
+const width = 1920;
+const height = 1080;
+
+const y_plane_width = width;
+const y_plane_height = height;
+const uv_plane_width = width;
+const uv_plane_height = height / 2;
+
+var frame_buffer: ?struct {
+    y: []u8,
+    uv: []u8,
+} = null;
+
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
 
     const allocator = general_purpose_allocator.allocator();
+
+    frame_buffer = .{
+        .y = try allocator.alloc(u8, y_plane_width * y_plane_height),
+        .uv = try allocator.alloc(u8, uv_plane_width * uv_plane_height),
+    };
+    defer {
+        allocator.free(frame_buffer.?.y);
+        allocator.free(frame_buffer.?.uv);
+    }
 
     try nvdec.cuda.load();
     try nvdec.cuda.init();
@@ -16,7 +38,7 @@ pub fn main() !void {
 
     var decoder = try nvdec.Decoder.create(.{
         .codec = .h264,
-        .resolution = .{ .width = 1920, .height = 1080 },
+        .resolution = .{ .width = width, .height = height },
     }, allocator);
     defer decoder.destroy();
 
@@ -71,29 +93,39 @@ fn handle_frame(cuda_context: nvdec.cuda.Context, frame: *const nvdec.Frame) !vo
     try cuda_context.push();
 
     try nvdec.cuda.copy2D(
-        .device_to_host{
-            .src = frame.y,
-            .dst = xxx,
+        .{ .device_to_host = .{
+            .src = frame.data.y,
+            .dst = frame_buffer.?.y,
+        } },
+        .{
+            .src_pitch = frame.pitch,
+            .dst_pitch = y_plane_width,
+            .dims = .{
+                .width = y_plane_width,
+                .height = y_plane_height,
+            },
         },
-        frame.pitch,
-        frame.dims.width,
-        frame.dims.height,
     );
 
     try nvdec.cuda.copy2D(
-        .device_to_host{
-            .src = frame.y,
-            .dst = xxx,
+        .{ .device_to_host = .{
+            .src = frame.data.uv,
+            .dst = frame_buffer.?.uv,
+        } },
+        .{
+            .src_pitch = frame.pitch,
+            .dst_pitch = uv_plane_width,
+            .dims = .{
+                .width = uv_plane_width,
+                .height = uv_plane_height,
+            },
         },
-        frame.pitch,
-        frame.dims.width,
-        frame.dims.height,
     );
 
     std.debug.print("yuv = ({}, {}, {})\n", .{
-        frame.data.y[0],
-        frame.data.uv[0],
-        frame.data.uv[1],
+        frame_buffer.?.y[0],
+        frame_buffer.?.uv[0],
+        frame_buffer.?.uv[1],
     });
 
     try cuda_context.push();
