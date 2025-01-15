@@ -90,6 +90,9 @@ pub fn main() !void {
 
 /// Print YUV values of the frame.
 fn handle_frame(cuda_context: nvdec.cuda.Context, frame: *const nvdec.Frame) !void {
+    std.debug.assert(frame.dims.width == width);
+    std.debug.assert(frame.dims.height == height);
+
     try cuda_context.push();
 
     try nvdec.cuda.copy2D(
