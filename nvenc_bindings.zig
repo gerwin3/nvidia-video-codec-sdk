@@ -209,8 +209,8 @@ pub const StereoPackingMode = enum(c_uint) {
     frameseq = 6,
 };
 
-pub const InputPtr = ?*anyopaque;
-pub const OutputPtr = ?*anyopaque;
+pub const InputPtr = ?*opaque {};
+pub const OutputPtr = ?*opaque {};
 
 pub const CodecConfig = extern union {
     h264Config: ConfigH264,

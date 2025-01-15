@@ -146,12 +146,12 @@ pub const VideoSurfaceFormat = enum(c_uint) {
     yuv444_16bit = 3,
 };
 
-pub const CUcontext = ?*anyopaque; // from cuda.h
-pub const CUstream = ?*anyopaque; // from cuda.h
+pub const CUcontext = ?*opaque {}; // from cuda.h
+pub const CUstream = ?*opaque {}; // from cuda.h
 
-pub const VideoParser = ?*anyopaque;
-pub const VideoDecoder = ?*anyopaque;
-pub const VideoCtxLock = ?*anyopaque;
+pub const VideoParser = ?*opaque {};
+pub const VideoDecoder = ?*opaque {};
+pub const VideoCtxLock = ?*opaque {};
 
 pub const VideoTimestamp = c_longlong;
 
