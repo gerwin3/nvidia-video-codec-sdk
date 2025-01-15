@@ -10,6 +10,8 @@ pub fn main() !void {
 
     const allocator = general_purpose_allocator.allocator();
 
+    try nvdec.cuda.load();
+    try nvdec.cuda.init();
     try nvdec.load();
 
     var decoder = try nvdec.Decoder.create(.{

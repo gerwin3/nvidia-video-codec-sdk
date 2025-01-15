@@ -6,8 +6,9 @@ pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const nvdec = addNvDec(b, target, optimize);
-    const nvenc = addNvEnc(b, target, optimize);
+    const cuda_modules = addCuda(b, target, optimize);
+    const nvdec = addNvDec(b, target, optimize, cuda_modules);
+    const nvenc = addNvEnc(b, target, optimize, cuda_modules);
 
     const modules = .{ nvdec, nvenc };
     inline for (modules) |module| {
@@ -25,12 +26,48 @@ pub fn build(b: *std.Build) !void {
     }
 }
 
-fn addNvDec(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+const CudaModules = struct {
+    cuda_bindings: *std.Build.Module,
+    cuda: *std.Build.Module,
+};
+
+fn addCuda(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) CudaModules {
+    const cuda_bindings = b.addModule("cuda_bindings", .{
+        .root_source_file = b.path("cuda_bindings.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    // We will be loading the NVIDIA libraries dynamically but they still require libc.
+    // Settings link_libc = true here will cause libc to be linked by dependents even
+    // though we are exporting a module rather than a library.
+    cuda_bindings.link_libc = true;
+
+    // Zig-friendly wrapper module
+    const cuda = b.addModule("cuda", .{
+        .root_source_file = b.path("cuda.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cuda.addImport("cuda_bindings", cuda_bindings);
+
+    return .{
+        .cuda = cuda,
+        .cuda_bindings = cuda_bindings,
+    };
+}
+
+fn addNvDec(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    cuda_modules: CudaModules,
+) *std.Build.Module {
     const nvdec_bindings = b.addModule("nvdec_bindings", .{
         .root_source_file = b.path("nvdec_bindings.zig"),
         .target = target,
         .optimize = optimize,
     });
+    nvdec_bindings.addImport("cuda_bindings", cuda_modules.cuda_bindings);
     // We will be loading the NVIDIA libraries dynamically but they still require libc.
     // Settings link_libc = true here will cause libc to be linked by dependents even
     // though we are exporting a module rather than a library.
@@ -42,6 +79,7 @@ fn addNvDec(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .target = target,
         .optimize = optimize,
     });
+    nvdec.addImport("cuda", cuda_modules.cuda);
     nvdec.addImport("nvdec_bindings", nvdec_bindings);
 
     // Example
@@ -57,12 +95,18 @@ fn addNvDec(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
     return nvdec;
 }
 
-fn addNvEnc(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) *std.Build.Module {
+fn addNvEnc(
+    b: *std.Build,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+    cuda_modules: CudaModules,
+) *std.Build.Module {
     const nvenc_bindings = b.addModule("nvenc_bindings", .{
         .root_source_file = b.path("nvenc_bindings.zig"),
         .target = target,
         .optimize = optimize,
     });
+    nvenc_bindings.addImport("cuda_bindings", cuda_modules.cuda_bindings);
     // We will be loading the NVIDIA libraries dynamically but they still require libc.
     // Settings link_libc = true here will cause libc to be linked by dependents even
     // though we are exporting a module rather than a library.
@@ -74,6 +118,7 @@ fn addNvEnc(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.built
         .target = target,
         .optimize = optimize,
     });
+    nvenc.addImport("cuda", cuda_modules.cuda);
     nvenc.addImport("nvenc_bindings", nvenc_bindings);
 
     // // Example

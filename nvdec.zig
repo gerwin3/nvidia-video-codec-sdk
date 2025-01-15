@@ -4,10 +4,7 @@ const nvdec_bindings = @import("nvdec_bindings");
 
 const nvdec_log = std.log.scoped(.nvdec_log);
 
-// TODO: NvDecoder.cpp (reference implementation) also includes context handling
-// (constantly pushing popping a specific context) but I feel like we should leave
-// that to the user.
-// TODO: Also left out context lock for now
+pub const cuda = @import("cuda");
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub const load = nvdec_bindings.load;
@@ -42,6 +39,7 @@ pub const DecoderOptions = struct {
         width: u32,
         height: u32,
     },
+    device: cuda.Device = 0,
 };
 
 const num_output_surfaces = 2;
@@ -49,6 +47,7 @@ const num_output_surfaces = 2;
 /// NVDEC Video Decoder.
 /// Decoder is not thread safe.
 pub const Decoder = struct {
+    context: cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
     decoder: nvdec_bindings.VideoDecoder = null,
 
@@ -69,7 +68,13 @@ pub const Decoder = struct {
     pub fn create(options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
         var self = try allocator.create(Decoder);
         errdefer allocator.destroy(self);
-        self.* = .{ .allocator = allocator };
+
+        const context = try cuda.Context.init(options.device);
+        self.* = .{
+            .context = context,
+            .allocator = allocator,
+        };
+        errdefer context.deinit();
 
         var parser_params = std.mem.zeroes(nvdec_bindings.ParserParams);
         parser_params.CodecType = options.codec;
@@ -80,20 +85,35 @@ pub const Decoder = struct {
         parser_params.pfnDecodePicture = handleDecodePicture;
         parser_params.pfnDisplayPicture = handleDisplayPicture;
         try result(nvdec_bindings.cuvidCreateVideoParser.?(&self.parser, &parser_params));
+        errdefer result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
+            nvdec_log.err("failed to destroy video parser (err = {})", .{err});
+        };
 
         return self;
     }
 
     pub fn destroy(self: *Decoder) void {
+        // this little dance is what NvDecoder does so we do it too...
+        self.context.push() catch {};
+        self.context.pop() catch {};
+
         self.frame_buffer_unmap_in_flight() catch @panic("failed to unmap in flight frame");
         // Check there are no more frames in the buffer. Otherwise the caller may have forgotten
         // to flush before destorying.
         std.debug.assert(self.frame_buffer_next() catch @panic("frame buffer error during destroy") == null);
 
-        if (self.parser != null)
-            result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch @panic("failed to destroy video parser");
-        if (self.decoder != null)
-            result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch @panic("failed to destroy decoder");
+        if (self.parser != null) {
+            result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
+                nvdec_log.err("failed to destroy video parser (err = {})", .{err});
+            };
+        }
+        if (self.decoder != null) {
+            result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch |err| {
+                nvdec_log.err("failed to destroy decoder (err = {})", .{err});
+            };
+        }
+
+        self.context.deinit();
         self.allocator.destroy(self);
     }
 
@@ -174,7 +194,16 @@ pub const Decoder = struct {
         decode_caps.eCodecType = format.?.codec;
         decode_caps.eChromaFormat = format.?.chroma_format;
         decode_caps.nBitDepthMinus8 = format.?.bit_depth_luma_minus8;
+
+        self.context.push() catch |err| {
+            self.error_state = err;
+            return 0;
+        };
         result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+        self.context.pop() catch |err| {
             self.error_state = err;
             return 0;
         };
@@ -220,7 +249,15 @@ pub const Decoder = struct {
             .height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
         };
 
+        self.context.push() catch |err| {
+            self.error_state = err;
+            return 0;
+        };
         result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info)) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+        self.context.pop() catch |err| {
             self.error_state = err;
             return 0;
         };
@@ -514,4 +551,4 @@ pub const Error = error{
     InvalidResourceType,
     InvalidResourceConfiguration,
     Unknown,
-};
+} || cuda.Error;

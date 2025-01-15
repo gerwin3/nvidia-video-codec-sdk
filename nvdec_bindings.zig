@@ -1,3 +1,5 @@
+pub const cuda_bindings = @import("cuda_bindings");
+
 pub const DecodeStatus = enum(c_uint) {
     invalid = 0,
     in_progress = 1,
@@ -145,9 +147,6 @@ pub const VideoSurfaceFormat = enum(c_uint) {
     yuv444 = 2,
     yuv444_16bit = 3,
 };
-
-pub const CUcontext = ?*opaque {}; // from cuda.h
-pub const CUstream = ?*opaque {}; // from cuda.h
 
 pub const VideoParser = ?*opaque {};
 pub const VideoDecoder = ?*opaque {};
@@ -628,7 +627,7 @@ pub const ProcParams = extern struct {
     raw_output_dptr: u64,
     raw_output_pitch: c_uint,
     _Reserved1: c_uint,
-    output_stream: CUstream,
+    output_stream: cuda_bindings.Stream,
     _Reserved: [46]c_uint,
     _Reserved2: [2]?*anyopaque,
 };
@@ -685,7 +684,7 @@ pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*Pi
 pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
 pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result = null;
 pub var cuvidUnmapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result = null;
-pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: CUcontext) Result = null;
+pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: cuda_bindings.Context) Result = null;
 pub var cuvidCtxLockDestroy: ?*const fn (lck: VideoCtxLock) Result = null;
 pub var cuvidCtxLock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
 pub var cuvidCtxUnlock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
@@ -697,12 +696,6 @@ pub var cuvidDestroyVideoParser: ?*const fn (obj: VideoParser) Result = null;
 pub fn load() !void {
     const std = @import("std");
     const builtin = @import("builtin");
-
-    _ = try switch (builtin.target.os.tag) {
-        .linux, .macos => std.DynLib.open("libcuda.so.1"),
-        .windows => std.DynLib.open("nvcuda.dll"),
-        else => @panic("unsupported operating system"),
-    };
 
     var nvcuvid = try switch (builtin.target.os.tag) {
         .linux, .macos => std.DynLib.open("libnvcuvid.so.1"),
@@ -716,7 +709,7 @@ pub fn load() !void {
     cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");
     cuvidMapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]u64, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result, "cuvidMapVideoFrame64") orelse @panic("cuvid library invalid");
     cuvidUnmapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, DevPtr: u64) Result, "cuvidUnmapVideoFrame64") orelse @panic("cuvid library invalid");
-    cuvidCtxLockCreate = nvcuvid.lookup(*const fn (pLock: [*c]VideoCtxLock, ctx: CUcontext) Result, "cuvidCtxLockCreate") orelse @panic("cuvid library invalid");
+    cuvidCtxLockCreate = nvcuvid.lookup(*const fn (pLock: [*c]VideoCtxLock, ctx: cuda_bindings.Context) Result, "cuvidCtxLockCreate") orelse @panic("cuvid library invalid");
     cuvidCtxLockDestroy = nvcuvid.lookup(*const fn (lck: VideoCtxLock) Result, "cuvidCtxLockDestroy") orelse @panic("cuvid library invalid");
     cuvidCtxLock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxLock") orelse @panic("cuvid library invalid");
     cuvidCtxUnlock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxUnlock") orelse @panic("cuvid library invalid");
