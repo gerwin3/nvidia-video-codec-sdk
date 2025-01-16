@@ -186,6 +186,10 @@ pub const Decoder = struct {
     }
 
     pub fn decode(self: *Decoder, data: []const u8) !?*const Frame {
+        // TODO: I do not believe this makes any sence. By invalidating the frame here
+        // we are basically forcing the caller to copy before calling decode again. We
+        // could be a bit smarter about it and keep a queue, then have the caller invalidate
+        // the frame whenever they want. This would allow overlapping IO.
         try self.buffer.invalidate_borrowed_frame(self.decoder);
         if (try self.buffer.next()) |frame| return frame;
 

@@ -261,6 +261,10 @@ pub const Encoder = struct {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
         };
 
+        // TODO: num buffers
+        // m_nEncoderBuffer = m_encodeConfig.frameIntervalP + m_encodeConfig.rcParams.lookaheadDepth + m_nExtraOutputDelay;
+        // m_nOutputDelay = m_nEncoderBuffer - 1;
+
         // TODO: not sure about this we want to load the data from GPU actually
         // var create_input_buffer = std.mem.zeroes(nvenc_bindings.CreateInputBuffer);
         // create_input_buffer.version = nvenc_bindings.create_input_buffer_ver;
@@ -313,6 +317,9 @@ pub const Encoder = struct {
     // NV_ENC_PIC_PARAMS set to 0. No input buffer is required while calling NvEncEncodePicture for EOS notification.
     // EOS notification effectively flushes the encoder. This can be called multiple times in a single encode session.
     // This operation however must be done before closing the encode session.
+    //
+    // I believe the whle buffering thing from NvEncoder is all about overlapping copy and encode so we can just
+    // use our own mechanism to achieve that
 
     // TODO: NvEncGetSequenceParams
     // we may want this for openh264 as well...?
