@@ -12,6 +12,13 @@ pub const load = nvenc_bindings.load;
 pub const H264Format = enum {
     yuv420,
     yuv444,
+
+    fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
+        return switch (self) {
+            .yuv420 => .nv12, // TODO? maybe???
+            .yuv444 => .yuv44,
+        };
+    }
 };
 
 pub const H264Profile = enum {
@@ -30,6 +37,15 @@ pub const HEVCFormat = enum {
     yuv444,
     yuv420_10bit,
     yuv444_10bit,
+
+    fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
+        return switch (self) {
+            .yuv420 => .nv12, // TODO? maybe???
+            .yuv444 => .yuv44,
+            .yuv420_10bit => .yuv420_10bit,
+            .yuv444_10bit => .yuv444_10bit,
+        };
+    }
 };
 
 pub const HEVCProfile = enum {
@@ -65,7 +81,30 @@ pub const Preset = enum {
     lossless_hp,
 };
 
-pub const RateControlMode = nvenc_bindings.ParamsRcMode;
+pub const RateControl = union(enum) {
+    const_qp: struct {
+        inter_p: u32,
+        inter_b: u32,
+        intra: u32,
+    },
+    vbr: struct {
+        average_bitrate: u32,
+        max_bitrate: u32,
+    },
+    vbr_hq: struct {
+        average_bitrate: u32,
+        max_bitrate: u32,
+    },
+    cbr: struct {
+        bitrate: u32,
+    },
+    cbr_hq: struct {
+        bitrate: u32,
+    },
+    cbr_lowdelay_hq: struct {
+        bitrate: u32,
+    },
+};
 
 pub const EncoderOptions = struct {
     codec: Codec,
@@ -76,13 +115,18 @@ pub const EncoderOptions = struct {
     },
     frame_rate: struct { num: u32, den: u32 } = .{ .num = 30, .den = 1 },
     idr_interval: ?u32 = null,
-    rate_control_mode: ?RateControlMode = null,
+    rate_control: RateControl = .{ .vbr = .{
+        .average_bitrate = 5_000_000,
+        .max_bitrate = 10_000_000,
+    } },
     device: cuda.Device = 0,
 };
 
 pub const Encoder = struct {
     context: cuda.Context,
     encoder: ?*anyopaque,
+    input_buffer: []u8,
+    bitstream_buffer: []const u8,
 
     pub fn init(options: EncoderOptions) !Encoder {
         const context = try cuda.Context.init(options.device);
@@ -144,13 +188,6 @@ pub const Encoder = struct {
 
         config.frameIntervalP = 1; // IPP mode
         config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
-        if (options.rate_control_mode) |rate_conrol_mode|
-            config.rcParams.rateControlMode = rate_conrol_mode;
-
-        // not sure but NvEncoder.cpp does it so we do it
-        if (initialize_params.presetGUID != nvenc_bindings.preset_lossless_default_guid and
-            initialize_params.presetGUID != nvenc_bindings.preset_lossless_hp_guid)
-            initialize_params.encodeConfig.rcParams.constQP = .{ .qpInterP = 28, .qpInterB = 31, .qpIntra = 25 };
 
         switch (options.codec) {
             .h264 => |h264_options| {
@@ -164,7 +201,7 @@ pub const Encoder = struct {
                     .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
                     .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
                 };
-                initialize_params.encodeConfig.encodeCodecConfig.h264Config.chromaFormatIDC = switch (h264_options.profile) {
+                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (h264_options.profile) {
                     .yuv420 => 1,
                     .yuv444 => 3,
                 };
@@ -175,24 +212,110 @@ pub const Encoder = struct {
                     .main10 => nvenc_bindings.hevc_profile_main10_guid,
                     .frext => nvenc_bindings.hevc_profile_frext_guid,
                 };
-                initialize_params.encodeConfig.encodeCodecConfig.h264Config.chromaFormatIDC = switch (hevc_options.profile) {
+                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (hevc_options.profile) {
                     .yuv420, .yuv420_10bit => 1,
                     .yuv444, .yuv444_10bit => 3,
                 };
-                initialize_params.encodeConfig.encodeCodecConfig.h264Config.pixelBitDepthMinus8 = switch (hevc_options.profile) {
+                config.encodeCodecConfig.h264Config.pixelBitDepthMinus8 = switch (hevc_options.profile) {
                     .yuv420_10bit, .yuv444_10bit => 2,
                     .yuv420, .yuv444 => 0,
                 };
             },
         }
 
-        // TODO: CreateEncoder continue
+        switch (options.rate_control) {
+            .const_qp => |rc_opts| {
+                config.rcParams.rateControlMode = .constqp;
+                config.rcParams.constQP = .{
+                    .qpInterP = rc_opts.inter_p,
+                    .qpInterB = rc_opts.inter_b,
+                    .qpIntra = rc_opts.intra,
+                };
+            },
+            .vbr => |rc_opts| {
+                config.rcParams.rateControlMode = .vbr;
+                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                config.rcParams.maxBitrate = rc_opts.max_bitrate;
+            },
+            .vbr_hq => |rc_opts| {
+                config.rcParams.rateControlMode = .vbr_hq;
+                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                config.rcParams.maxBitrate = rc_opts.max_bitrate;
+            },
+            .cbr => |rc_opts| {
+                config.rcParams.rateControlMode = .cbr;
+                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+            },
+            .cbr_hq => |rc_opts| {
+                config.rcParams.rateControlMode = .cbr_hq;
+                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+            },
+            .cbr_lowdelay_hq => |rc_opts| {
+                config.rcParams.rateControlMode = .cbr_lowdelay_hq;
+                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+            },
+        }
+
+        try status(nvenc_bindings.nvEncInitializeEncoder(encoder, &initialize_params));
+        errdefer status(nvenc_bindings.nvEncDestroyEncoder(encoder)) catch |err| {
+            nvenc_log.err("failed to destroy encoder (err = {})", .{err});
+        };
+
+        // TODO: not sure about this we want to load the data from GPU actually
+        // var create_input_buffer = std.mem.zeroes(nvenc_bindings.CreateInputBuffer);
+        // create_input_buffer.version = nvenc_bindings.create_input_buffer_ver;
+        //
+        // try status(nvenc_bindings.nvEncCreateInputBuffer(encoder, &create_input_buffer));
+        // errdefer status(nvenc_bindings.nvEncDestroyInputBuffer(encoder, create_input_buffer.inputBuffer)) catch |err| {
+        //     nvenc_log.err("failed to destroy input buffer (err = {})", .{err});
+        // };
+        //
+        // std.debug.assert(create_input_buffer.width == options.resolution.width);
+        // std.debug.assert(create_input_buffer.height == options.resolution.height);
+        // std.debug.assert(create_input_buffer.bufferFmt == switch (options.codec) {
+        //     .h264 => |h264_options| h264_options.format,
+        //     .hevc => |hevc_options| hevc_options.format,
+        // });
+
+        // TODO: store pointer
+        // TODO: destroy
+
+        var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
+        create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
+
+        try status(nvenc_bindings.nvEncCreateBitstreamBuffer(encoder, &create_bitstream_buffer));
+        errdefer status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, create_bitstream_buffer.bitstreamBuffer)) catch |err| {
+            nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
+        };
+
+        // TODO: store pointer
+        // TODO: destroy
 
         return Encoder{
             .context = context,
             .encoder = encoder,
         };
     }
+
+    // TODO: encoding
+    // Encoding notes:
+    // - we may get NV_ENC_ERR_NEED_MORE_INPUT in which case there will be no frame (more data needed)
+    //   if this happens DO NOT LOCK the output bitstream but instead provide more frames and then lock it
+    // - in sync mode: The client then must call NvEncEncodePicture without setting a completion event handle.
+    // The client must call NvEncLockBitstream with flag NV_ENC_LOCK_BITSTREAM::doNotWait set to 0, so that the lock
+    // call blocks until the hardware encoder finishes writing the output bitstream. The client can then operate on
+    // the generated bitstream data and call NvEncUnlockBitstream. This is the only mode supported on Linux.
+    // - WE could simplify this a lot by disabling B frames (already done) and lookahead and I think then we always
+    //   get one output for each frame
+    // Notifying the End of Input Stream
+    // To notify the end of input stream, the client must call NvEncEncodePicture with the flag
+    // NV_ENC_PIC_PARAMS:: encodePicFlags set to NV_ENC_FLAGS_EOS and all other members of
+    // NV_ENC_PIC_PARAMS set to 0. No input buffer is required while calling NvEncEncodePicture for EOS notification.
+    // EOS notification effectively flushes the encoder. This can be called multiple times in a single encode session.
+    // This operation however must be done before closing the encode session.
+
+    // TODO: NvEncGetSequenceParams
+    // we may want this for openh264 as well...?
 
     pub fn deinit(self: *Encoder) void {
         status(nvenc_bindings.?.nvEncDestroyEncoder(self.encoder)) catch |err| {
