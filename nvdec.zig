@@ -43,75 +43,78 @@ const num_output_surfaces = 2;
 /// NVDEC Video Decoder.
 /// Decoder is not thread safe.
 pub const Decoder = struct {
-    /// Helper struct for frame buffering.
-    /// This has gotten quite complex so refactoring it out made it easier to reason about.
-    pub const Buffer = struct {
-        items: [num_output_surfaces]struct {
-            frame: Frame,
-            valid: bool,
-        },
-        cur_borrowed: ?usize,
+    // /// Helper struct for frame buffering.
+    // /// This has gotten quite complex so refactoring it out made it easier to reason about.
+    // pub const Buffer = struct {
+    //     items: [num_output_surfaces]struct {
+    //         frame: Frame,
+    //         valid: bool,
+    //     },
+    //     cur_borrowed: ?usize,
 
-        pub fn init() Buffer {
-            var buffer = Buffer{
-                .items = undefined,
-                .cur_borrowed = null,
-            };
-            @memset(&buffer.items, .{ .frame = undefined, .valid = false });
-            return buffer;
-        }
+    //     pub fn init() Buffer {
+    //         var buffer = Buffer{
+    //             .items = undefined,
+    //             .cur_borrowed = null,
+    //         };
+    //         @memset(&buffer.items, .{ .frame = undefined, .valid = false });
+    //         return buffer;
+    //     }
 
-        /// Make sure to also call invalidate_borrowed_frame() before calling deinit.
-        pub fn deinit(self: *Buffer) void {
-            // just some checks:
-            // - no frame may be borrowed at this time or the caller forgot to invalidate the
-            //   borrowed frame before deinit
-            // - no frames may be active or the caller may have forgotten to flush the decoder
-            std.debug.assert(self.cur_borrowed == null);
-            const next_item_should_not_be_there = self.next() catch |err| {
-                nvdec_log.err("failed to pull next item during buffer deinit (err = {})", .{err});
-            };
-            std.debug.assert(next_item_should_not_be_there == null);
-        }
+    //     /// Make sure to also call invalidate_borrowed_frame() before calling deinit.
+    //     pub fn deinit(self: *Buffer) void {
+    //         // just some checks:
+    //         // - no frame may be borrowed at this time or the caller forgot to invalidate the
+    //         //   borrowed frame before deinit
+    //         // - no frames may be active or the caller may have forgotten to flush the decoder
+    //         std.debug.assert(self.cur_borrowed == null);
+    //         const next_item_should_not_be_there = self.next() catch |err| {
+    //             nvdec_log.err("failed to pull next item during buffer deinit (err = {})", .{err});
+    //         };
+    //         std.debug.assert(next_item_should_not_be_there == null);
+    //     }
 
-        pub fn push(self: *Buffer, frame: Frame) !void {
-            for (0..self.items.len) |index| {
-                if (self.items[index].valid)
-                    continue;
+    //     pub fn push(self: *Buffer, frame: Frame) !void {
+    //         for (0..self.items.len) |index| {
+    //             if (self.items[index].valid)
+    //                 continue;
 
-                self.items[index] = .{ .valid = true, .frame = frame };
-                return;
-            }
+    //             self.items[index] = .{ .valid = true, .frame = frame };
+    //             return;
+    //         }
 
-            nvdec_log.err("frame buffer full (len = {})", .{self.items.len});
-            return Error.FrameBufferFull;
-        }
+    //         nvdec_log.err("frame buffer full (len = {})", .{self.items.len});
+    //         return Error.FrameBufferFull;
+    //     }
 
-        pub fn next(self: *Buffer) !?*const Frame {
-            std.debug.assert(self.cur_borrowed == null);
+    //     pub fn next(self: *Buffer) !?*const Frame {
+    //         std.debug.assert(self.cur_borrowed == null);
 
-            for (0..self.items.len) |index| {
-                if (self.items[index].valid) {
-                    self.cur_borrowed = index;
-                    return &self.items[index].frame;
-                }
-            }
-            return null;
-        }
+    //         for (0..self.items.len) |index| {
+    //             if (self.items[index].valid) {
+    //                 self.cur_borrowed = index;
+    //                 return &self.items[index].frame;
+    //             }
+    //         }
+    //         return null;
+    //     }
 
-        pub fn invalidate_borrowed_frame(self: *Buffer, inner_decoder: nvdec_bindings.VideoDecoder) !void {
-            if (self.cur_borrowed) |cur_borrowed| {
-                std.debug.assert(self.items[cur_borrowed].valid);
+    //     pub fn invalidate_borrowed_frame(self: *Buffer, inner_decoder: nvdec_bindings.VideoDecoder) !void {
+    //         if (self.cur_borrowed) |cur_borrowed| {
+    //             std.debug.assert(self.items[cur_borrowed].valid);
 
-                try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
-                    inner_decoder,
-                    cuda.devicePtrFromSlice(self.items[cur_borrowed].frame.data.y),
-                ));
-                self.items[cur_borrowed].valid = false;
-                self.cur_borrowed = null;
-            }
-        }
-    };
+    //             try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
+    //                 inner_decoder,
+    //                 cuda.devicePtrFromSlice(self.items[cur_borrowed].frame.data.y),
+    //             ));
+    //             self.items[cur_borrowed].valid = false;
+    //             self.cur_borrowed = null;
+    //         }
+    //     }
+    // };
+    // TODO ^
+
+    // TODO: we should not force context per decoder upon caller
 
     context: cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
@@ -119,12 +122,15 @@ pub const Decoder = struct {
 
     allocator: std.mem.Allocator,
 
-    buffer: Buffer,
+    buffer: std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 32 }), // TODO buffer size
+    currently_borrowed_frame: ?*const Frame = null, // TODO deinit handling
+
     surface_info: ?struct {
         frame_width: u32,
         frame_height: u32,
         surface_height: u32,
     } = null,
+
     error_state: ?Error = null,
 
     pub fn create(options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
@@ -186,10 +192,6 @@ pub const Decoder = struct {
     }
 
     pub fn decode(self: *Decoder, data: []const u8) !?*const Frame {
-        // TODO: I do not believe this makes any sence. By invalidating the frame here
-        // we are basically forcing the caller to copy before calling decode again. We
-        // could be a bit smarter about it and keep a queue, then have the caller invalidate
-        // the frame whenever they want. This would allow overlapping IO.
         try self.buffer.invalidate_borrowed_frame(self.decoder);
         if (try self.buffer.next()) |frame| return frame;
 
@@ -219,6 +221,64 @@ pub const Decoder = struct {
     pub fn flush(self: *Decoder) !?*const Frame {
         // calling decode with an empty slice means flush
         return self.decode(&.{});
+    }
+
+    fn frame(self: *Decoder) !?*const Frame {
+        const parser_disp_info = self.buffer.readItem() orelse return null;
+
+        var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
+        proc_params.progressive_frame = parser_disp_info.progressive_frame;
+        proc_params.second_field = parser_disp_info.repeat_first_field + 1;
+        proc_params.top_field_first = parser_disp_info.top_field_first;
+        proc_params.unpaired_field = if (parser_disp_info.repeat_first_field < 0) 1 else 0;
+        // TODO: By leaving this uncommented we are defaulting to the global stream which
+        // is not ideal especially in multi-decoder situations.
+        // If we are going to create entirely new contexts for every decoder (NvDecoder does this)
+        // then it's okay since there is no points in having separate streams anyway.
+        // proc_params.output_stream = m_cuvidStream;
+
+        var frame_data: cuda.DevicePtr = 0;
+        var frame_pitch: c_uint = 0;
+        try result(nvdec_bindings.cuvidMapVideoFrame64.?(
+            self.decoder,
+            parser_disp_info.picture_index,
+            &frame_data,
+            &frame_pitch,
+            &proc_params,
+        ));
+        std.debug.assert(frame_data != 0);
+
+        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
+        try result(nvdec_bindings.cuvidGetDecodeStatus.?(
+            self.decoder,
+            parser_disp_info.picture_index,
+            &get_decode_status,
+        ));
+
+        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
+        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
+
+        const frame_width = self.surface_info.?.frame_width;
+        const frame_height = self.surface_info.?.frame_height;
+        const surface_height = self.surface_info.?.surface_height;
+        const pitch: u32 = @intCast(frame_pitch);
+
+        // nv12 is a biplanar format so all we need here is to calculate the offset
+        // to the UV plane (which contains both U and V) using the surface height
+        const uv_offset = surface_height * pitch;
+
+        return Frame{
+            .data = .{
+                .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
+                .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
+            },
+            .pitch = @intCast(frame_pitch),
+            .dims = .{
+                .width = frame_width,
+                .height = frame_height,
+            },
+            .timestamp = @intCast(parser_disp_info.timestamp),
+        };
     }
 
     fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
@@ -330,70 +390,18 @@ pub const Decoder = struct {
     }
 
     fn handleDisplayPicture(context: ?*anyopaque, parser_disp_info: ?*nvdec_bindings.ParserDispInfo) callconv(.C) c_int {
+        // TODO: Really what you want here is to just pupt the whole thing on a queue somewhere
+        // and have the caller asyncy pull items from that queue basically send/receive
+        // TODO probably need: https://ziglang.org/documentation/master/std/#std.fifo.LinearFifo
+
         var self: *Decoder = @ptrCast(@alignCast(context));
 
         if (self.error_state != null) return 0;
 
-        var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
-        proc_params.progressive_frame = parser_disp_info.?.progressive_frame;
-        proc_params.second_field = parser_disp_info.?.repeat_first_field + 1;
-        proc_params.top_field_first = parser_disp_info.?.top_field_first;
-        proc_params.unpaired_field = if (parser_disp_info.?.repeat_first_field < 0) 1 else 0;
-        // TODO: By leaving this uncommented we are defaulting to the global stream which
-        // is not ideal especially in multi-decoder situations.
-        // If we are going to create entirely new contexts for every decoder (NvDecoder does this)
-        // then it's okay since there is no points in having separate streams anyway.
-        // proc_params.output_stream = m_cuvidStream;
-
-        var frame_data: cuda.DevicePtr = 0;
-        var frame_pitch: c_uint = 0;
-        result(nvdec_bindings.cuvidMapVideoFrame64.?(
-            self.decoder,
-            parser_disp_info.?.picture_index,
-            &frame_data,
-            &frame_pitch,
-            &proc_params,
-        )) catch |err| {
-            self.error_state = err;
+        self.buffer.writeItem(parser_disp_info.?) catch {
+            self.error_state = error.FrameBufferFull;
             return 0;
         };
-        std.debug.assert(frame_data != 0);
-
-        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.?.picture_index, &get_decode_status)) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-
-        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
-        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
-
-        const frame_width = self.surface_info.?.frame_width;
-        const frame_height = self.surface_info.?.frame_height;
-        const surface_height = self.surface_info.?.surface_height;
-        const pitch: u32 = @intCast(frame_pitch);
-
-        // nv12 is a biplanar format so all we need here is to calculate the offset
-        // to the UV plane (which contains both U and V) using the surface height
-        const uv_offset = surface_height * pitch;
-
-        self.buffer.push(.{
-            .data = .{
-                .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
-                .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
-            },
-            .pitch = @intCast(frame_pitch),
-            .dims = .{
-                .width = frame_width,
-                .height = frame_height,
-            },
-            .timestamp = @intCast(parser_disp_info.?.timestamp),
-        }) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-
-        return 1;
     }
 };
 
