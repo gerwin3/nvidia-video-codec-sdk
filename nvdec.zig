@@ -116,14 +116,24 @@ pub const Decoder = struct {
 
     // TODO: we should not force context per decoder upon caller
 
+    // TODO: probably need to mimic this approach to share single context among many
+    // decoders: https://forums.developer.nvidia.com/t/sharing-the-same-cuda-context-for-encoding-nvenc-and-decoding-nvdec/59285/13
+
+    // TODO: buffer size
+    const LinearFifoBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 32 });
+
     context: cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
     decoder: nvdec_bindings.VideoDecoder = null,
 
     allocator: std.mem.Allocator,
 
-    buffer: std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 32 }), // TODO buffer size
-    currently_borrowed_frame: ?*const Frame = null, // TODO deinit handling
+    buffer: LinearFifoBuffer,
+    // TODO currently_borrowed_frame_data: ?cuda.DevicePtr,
+    // TODO borrowed_frame_table Since we can borrow frames basically as long as we
+    // need until the number of output surfaces runs out (as I understand it) we may
+    // be able to be a bit smarter about borrowing the frames
+    // we could even just tell the user to unborrow...
 
     surface_info: ?struct {
         frame_width: u32,
@@ -140,7 +150,7 @@ pub const Decoder = struct {
         const context = try cuda.Context.init(options.device);
         errdefer context.deinit();
 
-        var buffer = Buffer.init();
+        var buffer = LinearFifoBuffer.init();
         errdefer buffer.deinit();
 
         self.* = .{
@@ -170,9 +180,10 @@ pub const Decoder = struct {
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        self.buffer.invalidate_borrowed_frame(self.decoder) catch |err| {
-            nvdec_log.err("failed to invalidate borrowed frame (err = {})", .{err});
-        };
+        // TODO:
+        // self.invalidate_borrowed_frame(self.decoder) catch |err| {
+        //     nvdec_log.err("failed to invalidate borrowed frame (err = {})", .{err});
+        // };
 
         if (self.parser != null) {
             result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
@@ -192,8 +203,8 @@ pub const Decoder = struct {
     }
 
     pub fn decode(self: *Decoder, data: []const u8) !?*const Frame {
-        try self.buffer.invalidate_borrowed_frame(self.decoder);
-        if (try self.buffer.next()) |frame| return frame;
+        try self.invalidate_currently_borrowed_frame();
+        if (try self.frame()) |frame| return frame;
 
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
         if (data.len > 0) {
@@ -221,6 +232,29 @@ pub const Decoder = struct {
     pub fn flush(self: *Decoder) !?*const Frame {
         // calling decode with an empty slice means flush
         return self.decode(&.{});
+    }
+
+    // TODO: NVIDIA blogpost says: ulNumOutputSurfaces
+    // The application gets the final output in one of the ulNumOutputSurfaces
+    // surfaces, also called the output surface. The driver performs an internal
+    // copy—and postprocessing if deinterlacing/scaling/cropping is enabled—from
+    // decoded surface to output surface. The optimal value of ulNumOutputSurfaces
+    // depends upon the number of output buffers needed at a time. A single buffer
+    // also suffices if the applications reads—using cuvidMapVideoFrame—one output
+    // buffer at a time, that is, releasing the current frame using
+    // cuvidUnmapVideoFrame before reading the next frame. The optimal value for
+    // ulNumOutputSurfaces, therefore, depends upon how the downstream functions
+    // that follow the decoding stage are processing the data.
+
+    fn invalidate_currently_borrowed_frame(self: *Decoder) !void {
+        if (self.currently_borrowed_frame_data) |frame_data| {
+            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
+                self.decoder,
+                frame_data,
+            ));
+
+            self.currently_borrowed_frame_data = null;
+        }
     }
 
     fn frame(self: *Decoder) !?*const Frame {
@@ -266,6 +300,8 @@ pub const Decoder = struct {
         // nv12 is a biplanar format so all we need here is to calculate the offset
         // to the UV plane (which contains both U and V) using the surface height
         const uv_offset = surface_height * pitch;
+
+        self.currently_borrowed_frame_data = frame_data;
 
         return Frame{
             .data = .{
@@ -390,10 +426,6 @@ pub const Decoder = struct {
     }
 
     fn handleDisplayPicture(context: ?*anyopaque, parser_disp_info: ?*nvdec_bindings.ParserDispInfo) callconv(.C) c_int {
-        // TODO: Really what you want here is to just pupt the whole thing on a queue somewhere
-        // and have the caller asyncy pull items from that queue basically send/receive
-        // TODO probably need: https://ziglang.org/documentation/master/std/#std.fifo.LinearFifo
-
         var self: *Decoder = @ptrCast(@alignCast(context));
 
         if (self.error_state != null) return 0;
