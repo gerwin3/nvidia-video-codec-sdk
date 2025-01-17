@@ -301,25 +301,33 @@ pub const Encoder = struct {
         };
     }
 
-    // TODO: encoding
-    // Encoding notes:
-    // - we may get NV_ENC_ERR_NEED_MORE_INPUT in which case there will be no frame (more data needed)
-    //   if this happens DO NOT LOCK the output bitstream but instead provide more frames and then lock it
-    // - in sync mode: The client then must call NvEncEncodePicture without setting a completion event handle.
-    // The client must call NvEncLockBitstream with flag NV_ENC_LOCK_BITSTREAM::doNotWait set to 0, so that the lock
-    // call blocks until the hardware encoder finishes writing the output bitstream. The client can then operate on
-    // the generated bitstream data and call NvEncUnlockBitstream. This is the only mode supported on Linux.
-    // - WE could simplify this a lot by disabling B frames (already done) and lookahead and I think then we always
-    //   get one output for each frame
-    // Notifying the End of Input Stream
-    // To notify the end of input stream, the client must call NvEncEncodePicture with the flag
-    // NV_ENC_PIC_PARAMS:: encodePicFlags set to NV_ENC_FLAGS_EOS and all other members of
-    // NV_ENC_PIC_PARAMS set to 0. No input buffer is required while calling NvEncEncodePicture for EOS notification.
-    // EOS notification effectively flushes the encoder. This can be called multiple times in a single encode session.
-    // This operation however must be done before closing the encode session.
-    //
-    // I believe the whle buffering thing from NvEncoder is all about overlapping copy and encode so we can just
-    // use our own mechanism to achieve that
+    // NOTE: The NvEncoder implementation uses a cirular buffer to keep input
+    // and output buffers. For a while I thought this was due to the underlying
+    // nvEncEncodePicture being somehow async, but this is NOT the case
+    // (assuming enableEncodeAsync is set to false of course). The reason
+    // NvEncoder does this is because it has a built-in output delay feature
+    // that can probably help saturation in the multi-threaded case. Anyway, we
+    // can just use a single input surface and output buffer and all will be
+    // fine.
+
+    // TODO: Still not sure how to handle NV_ENC_ERR_NEED_MORE_INPUT. Opened a
+    // thread here:
+    // https://forums.developer.nvidia.com/t/how-to-handle-buffers-when-nvencencodepicture-produces-nv-enc-err-need-more-input/320435
+
+    // TODO: The client must call NvEncLockBitstream with flag
+    // NV_ENC_LOCK_BITSTREAM::doNotWait set to 0, so that the lock call blocks
+    // until the hardware encoder finishes writing the output bitstream. The
+    // client can then operate on the generated bitstream data and call
+    // NvEncUnlockBitstream. This is the only mode supported on Linux.
+
+    // TODO: Notifying the End of Input Stream: To notify the end of input
+    // stream, the client must call NvEncEncodePicture with the flag
+    // NV_ENC_PIC_PARAMS:: encodePicFlags set to NV_ENC_FLAGS_EOS and all other
+    // members of NV_ENC_PIC_PARAMS set to 0. No input buffer is required while
+    // calling NvEncEncodePicture for EOS notification. EOS notification
+    // effectively flushes the encoder. This can be called multiple times in a
+    // single encode session. This operation however must be done before
+    // closing the encode session.
 
     // TODO: NvEncGetSequenceParams
     // we may want this for openh264 as well...?
