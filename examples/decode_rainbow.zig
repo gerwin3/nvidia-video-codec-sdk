@@ -39,14 +39,7 @@ pub fn main() !void {
     var context = try nvdec.cuda.Context.init(0);
     defer context.deinit();
 
-    var decoder = try nvdec.Decoder.create(
-        &context,
-        .{
-            .codec = .h264,
-            .resolution = .{ .width = width, .height = height },
-        },
-        allocator,
-    );
+    var decoder = try nvdec.Decoder.create(&context, .{ .codec = .h264 }, allocator);
     defer decoder.destroy();
 
     const file = try std.fs.cwd().openFile("rainbow.264", .{});

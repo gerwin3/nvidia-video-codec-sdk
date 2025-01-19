@@ -123,12 +123,90 @@ pub const EncoderOptions = struct {
 };
 
 pub const Encoder = struct {
+    // pub const IOItem = struct {
+    //     input_buffer: TODO,
+    //     output_bitstream: TODO,
+    //
+    //     pub fn init() IOItem {
+    //         // TODO
+    //         // allocate output bitstream
+    //     }
+    //
+    //     pub fn deinit(self: *IOItem) void {
+    //         // TODO
+    //         // deallocate output bitstream
+    //     }
+    //
+    //     pub fn lock(self: *IOItem) !void {
+    //         // TODO
+    //         // handle both registration of input surface as well as lock input and output bitstream
+    //     }
+    //
+    //     pub fn unlock(self: *IOItem) !void {
+    //         // TODO
+    //         // handle deregistration of input surface as well as unlock input and output bitstream
+    //     }
+    // };
+    //
+    // pub const IOBuffer = struct {
+    //     const Slot = struct {
+    //         todo: u64, // TODO
+    //     };
+    //
+    //     slots: []Slot,
+    //     head: usize = 0,
+    //     tail: usize = 0,
+    //
+    //     pub fn init(size: usize, allocator: std.mem.Allocator) !IOBuffer {
+    //         const data = allocator.alloc(IOItem, size);
+    //         for (&data) |*item| {
+    //             item.* = IOItem.init();
+    //         }
+    //         return IOBuffer{ .ring_buffer = RingBuffer(IOItem).init(data) };
+    //     }
+    //
+    //     pub fn deinit(self: *IOBuffer, allocator: std.mem.Allocator) void {
+    //         for (&self.ring_buffer.data) |*item| {
+    //             item.deinit();
+    //         }
+    //         allocator.free(self.ring_buffer.data);
+    //     }
+    //
+    //     /// Claim I/O item.
+    //     /// Returns an error if the IO buffer is full.
+    //     pub fn claim(self: *IOBuffer) !*const IOItem {
+    //         // TODO
+    //     }
+    //
+    //     ///
+    //     pub fn loan_current_output() ?[]u8 {
+    //         // TODO
+    //     }
+    //
+    //     // TODO: Name
+    //     pub fn invalidate_current_output(self: *IOBuffer, writer: anytype) void {
+    //         // TODO: one at a time so we can avoid buffering?
+    //     }
+    // };
+
     context: cuda.Context,
     encoder: ?*anyopaque,
-    input_buffer: []u8,
-    bitstream_buffer: []const u8,
 
-    pub fn init(options: EncoderOptions) !Encoder {
+    buffer: std.fifo.LinearFifo(struct { input: u8, output: u8 }, .Slice),
+
+    // TODO: io_buffer: RingBuffer(struct {}),
+
+    // state: struct {
+    //     cache: []struct {
+    //         input: struct {},
+    //         output: struct {},
+    //     },
+    //
+    //     input_index: usize,
+    //     output_index: usize,
+    // },
+
+    pub fn init(options: EncoderOptions, allocator: std.mem.Allocator) !Encoder {
         const context = try cuda.Context.init(options.device);
         errdefer context.deinit();
 
@@ -265,6 +343,15 @@ pub const Encoder = struct {
         // m_nEncoderBuffer = m_encodeConfig.frameIntervalP + m_encodeConfig.rcParams.lookaheadDepth + m_nExtraOutputDelay;
         // m_nOutputDelay = m_nEncoderBuffer - 1;
 
+        const buffer_size = config.frameIntervalP + config.rcParams.lookaheadDepth;
+
+        const items = allocator.alloc(struct {}, buffer_size);
+        for (items) |item| {
+            item.input = null;
+            item.output = TODO; // TODO: allocate
+        }
+        // TODO: item.output dealloc in deinit
+
         // TODO: not sure about this we want to load the data from GPU actually
         // var create_input_buffer = std.mem.zeroes(nvenc_bindings.CreateInputBuffer);
         // create_input_buffer.version = nvenc_bindings.create_input_buffer_ver;
@@ -298,17 +385,17 @@ pub const Encoder = struct {
         return Encoder{
             .context = context,
             .encoder = encoder,
+            .io_queue = IOQueue.init(),
         };
     }
 
-    // NOTE: The NvEncoder implementation uses a cirular buffer to keep input
-    // and output buffers. For a while I thought this was due to the underlying
-    // nvEncEncodePicture being somehow async, but this is NOT the case
-    // (assuming enableEncodeAsync is set to false of course). The reason
-    // NvEncoder does this is because it has a built-in output delay feature
-    // that can probably help saturation in the multi-threaded case. Anyway, we
-    // can just use a single input surface and output buffer and all will be
-    // fine.
+    pub fn deinit(self: *Encoder) void {
+        status(nvenc_bindings.?.nvEncDestroyEncoder(self.encoder)) catch |err| {
+            nvenc_log.err("failed to destroy encoder (err = {})", .{err});
+        };
+
+        self.context.deinit();
+    }
 
     // TODO: Still not sure how to handle NV_ENC_ERR_NEED_MORE_INPUT. Opened a
     // thread here:
@@ -332,12 +419,9 @@ pub const Encoder = struct {
     // TODO: NvEncGetSequenceParams
     // we may want this for openh264 as well...?
 
-    pub fn deinit(self: *Encoder) void {
-        status(nvenc_bindings.?.nvEncDestroyEncoder(self.encoder)) catch |err| {
-            nvenc_log.err("failed to destroy encoder (err = {})", .{err});
-        };
-
-        self.context.deinit();
+    // TODO: add buffer info stride etc.
+    pub fn encode(self: *Encoder, frame: cuda.DevicePtr) ![]const u8 {
+        // TODO
     }
 };
 
@@ -398,4 +482,22 @@ pub const Error = error{
     ResourceRegisterFailed,
     ResourceNotRegistered,
     ResourceNotMapped,
+};
+
+// TODO: this seems unnecessary
+pub const RingBufferState = struct {
+    head_index: usize = 0,
+    tail_index: usize = 0,
+    len: usize,
+
+    fn increment_head(self: *RingBufferState) !void {
+        const new_head_index = (self.head_index + 1) % self.len;
+        if (new_head_index == self.tail_index) return error.Full;
+        self.head_index = new_head_index;
+    }
+
+    fn increment_tail(self: *RingBufferState) !void {
+        const new_tail_index = (self.tail_index + 1) % self.len;
+        if (new_tail_index != self.head_index) self.tail_index = new_tail_index;
+    }
 };

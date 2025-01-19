@@ -31,10 +31,6 @@ pub const Frame = struct {
 
 pub const DecoderOptions = struct {
     codec: Codec,
-    resolution: struct {
-        width: u32,
-        height: u32,
-    },
 };
 
 /// NVDEC Video Decoder.
@@ -46,7 +42,7 @@ pub const Decoder = struct {
 
     // Buffer size 4 should suffice since that is the buffer size NVDEC uses
     // internally for the decoding output queue.
-    const LinearFifoBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
+    const FrameQueue = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
 
     context: *cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
@@ -62,7 +58,7 @@ pub const Decoder = struct {
 
     error_state: ?Error = null,
 
-    buffer: LinearFifoBuffer,
+    frame_queue: FrameQueue,
     cur_frame_ptr: ?cuda.DevicePtr = null,
 
     /// Create new decoder. Decoder will use the provided context. The context
@@ -72,7 +68,7 @@ pub const Decoder = struct {
         var self = try allocator.create(Decoder);
         errdefer allocator.destroy(self);
 
-        var buffer = LinearFifoBuffer.init();
+        var buffer = FrameQueue.init();
         errdefer buffer.deinit();
 
         self.* = .{
@@ -109,7 +105,7 @@ pub const Decoder = struct {
         // User must flush decoder before destroying it. If there are still
         // frames left in the queue this means the deocder was not flushed
         // properly.
-        std.debug.assert(self.buffer.readItem() == null);
+        std.debug.assert(self.frame_queue.readItem() == null);
 
         if (self.parser != null) {
             result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
@@ -162,7 +158,7 @@ pub const Decoder = struct {
     }
 
     fn dequeue_and_map_frame(self: *Decoder) !?Frame {
-        const parser_disp_info = self.buffer.readItem() orelse return null;
+        const parser_disp_info = self.frame_queue.readItem() orelse return null;
 
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.progressive_frame;
@@ -354,7 +350,7 @@ pub const Decoder = struct {
         // NOTE: If this unreachable ever hits it means that my assumption that
         // NVDEC will never buffer more than 4 frames for dispatch at a time is
         // incorrect. Increase buffer size as needed.
-        self.buffer.writeItem(parser_disp_info.?.*) catch unreachable;
+        self.frame_queue.writeItem(parser_disp_info.?.*) catch unreachable;
 
         return 1;
     }
