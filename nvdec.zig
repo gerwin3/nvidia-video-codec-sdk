@@ -35,105 +35,24 @@ pub const DecoderOptions = struct {
         width: u32,
         height: u32,
     },
-    device: cuda.Device = 0,
 };
-
-const num_output_surfaces = 2;
 
 /// NVDEC Video Decoder.
 /// Decoder is not thread safe.
 pub const Decoder = struct {
-    // /// Helper struct for frame buffering.
-    // /// This has gotten quite complex so refactoring it out made it easier to reason about.
-    // pub const Buffer = struct {
-    //     items: [num_output_surfaces]struct {
-    //         frame: Frame,
-    //         valid: bool,
-    //     },
-    //     cur_borrowed: ?usize,
+    // TODO: Probably need to mimic this approach to share single context among
+    // many decoders:
+    // https://forums.developer.nvidia.com/t/sharing-the-same-cuda-context-for-encoding-nvenc-and-decoding-nvdec/59285/13
 
-    //     pub fn init() Buffer {
-    //         var buffer = Buffer{
-    //             .items = undefined,
-    //             .cur_borrowed = null,
-    //         };
-    //         @memset(&buffer.items, .{ .frame = undefined, .valid = false });
-    //         return buffer;
-    //     }
+    // Buffer size 4 should suffice since that is the buffer size NVDEC uses
+    // internally for the decoding output queue.
+    const LinearFifoBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
 
-    //     /// Make sure to also call invalidate_borrowed_frame() before calling deinit.
-    //     pub fn deinit(self: *Buffer) void {
-    //         // just some checks:
-    //         // - no frame may be borrowed at this time or the caller forgot to invalidate the
-    //         //   borrowed frame before deinit
-    //         // - no frames may be active or the caller may have forgotten to flush the decoder
-    //         std.debug.assert(self.cur_borrowed == null);
-    //         const next_item_should_not_be_there = self.next() catch |err| {
-    //             nvdec_log.err("failed to pull next item during buffer deinit (err = {})", .{err});
-    //         };
-    //         std.debug.assert(next_item_should_not_be_there == null);
-    //     }
-
-    //     pub fn push(self: *Buffer, frame: Frame) !void {
-    //         for (0..self.items.len) |index| {
-    //             if (self.items[index].valid)
-    //                 continue;
-
-    //             self.items[index] = .{ .valid = true, .frame = frame };
-    //             return;
-    //         }
-
-    //         nvdec_log.err("frame buffer full (len = {})", .{self.items.len});
-    //         return Error.FrameBufferFull;
-    //     }
-
-    //     pub fn next(self: *Buffer) !?*const Frame {
-    //         std.debug.assert(self.cur_borrowed == null);
-
-    //         for (0..self.items.len) |index| {
-    //             if (self.items[index].valid) {
-    //                 self.cur_borrowed = index;
-    //                 return &self.items[index].frame;
-    //             }
-    //         }
-    //         return null;
-    //     }
-
-    //     pub fn invalidate_borrowed_frame(self: *Buffer, inner_decoder: nvdec_bindings.VideoDecoder) !void {
-    //         if (self.cur_borrowed) |cur_borrowed| {
-    //             std.debug.assert(self.items[cur_borrowed].valid);
-
-    //             try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
-    //                 inner_decoder,
-    //                 cuda.devicePtrFromSlice(self.items[cur_borrowed].frame.data.y),
-    //             ));
-    //             self.items[cur_borrowed].valid = false;
-    //             self.cur_borrowed = null;
-    //         }
-    //     }
-    // };
-    // TODO ^
-
-    // TODO: we should not force context per decoder upon caller
-
-    // TODO: probably need to mimic this approach to share single context among many
-    // decoders: https://forums.developer.nvidia.com/t/sharing-the-same-cuda-context-for-encoding-nvenc-and-decoding-nvdec/59285/13
-
-    // TODO: buffer size
-    const LinearFifoBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 32 });
-
-    context: cuda.Context,
+    context: *cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
     decoder: nvdec_bindings.VideoDecoder = null,
 
     allocator: std.mem.Allocator,
-
-    buffer: LinearFifoBuffer,
-    // TODO currently_borrowed_frame_data: ?cuda.DevicePtr,
-    // TODO borrowed_frame_table Since we can borrow frames basically as long as we
-    // need until the number of output surfaces runs out (as I understand it) we may
-    // be able to be a bit smarter about borrowing the frames
-    // we could even just tell the user to unborrow...
 
     surface_info: ?struct {
         frame_width: u32,
@@ -143,12 +62,15 @@ pub const Decoder = struct {
 
     error_state: ?Error = null,
 
-    pub fn create(options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
+    buffer: LinearFifoBuffer,
+    cur_frame_ptr: ?cuda.DevicePtr = null,
+
+    /// Create new decoder. Decoder will use the provided context. The context
+    /// will be automatically pushed and popped upon usage internally.
+    /// Context must live at least as long as decoder.
+    pub fn create(context: *cuda.Context, options: DecoderOptions, allocator: std.mem.Allocator) !*Decoder {
         var self = try allocator.create(Decoder);
         errdefer allocator.destroy(self);
-
-        const context = try cuda.Context.init(options.device);
-        errdefer context.deinit();
 
         var buffer = LinearFifoBuffer.init();
         errdefer buffer.deinit();
@@ -180,10 +102,14 @@ pub const Decoder = struct {
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        // TODO:
-        // self.invalidate_borrowed_frame(self.decoder) catch |err| {
-        //     nvdec_log.err("failed to invalidate borrowed frame (err = {})", .{err});
-        // };
+        self.unmap_current_frame() catch |err| {
+            nvdec_log.err("failed to unmap frame (err = {})", .{err});
+        };
+
+        // User must flush decoder before destroying it. If there are still
+        // frames left in the queue this means the deocder was not flushed
+        // properly.
+        std.debug.assert(self.buffer.readItem() == null);
 
         if (self.parser != null) {
             result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
@@ -196,15 +122,16 @@ pub const Decoder = struct {
             };
         }
 
-        self.buffer.deinit();
-        self.context.deinit();
-
         self.allocator.destroy(self);
     }
 
-    pub fn decode(self: *Decoder, data: []const u8) !?*const Frame {
-        try self.invalidate_currently_borrowed_frame();
-        if (try self.frame()) |frame| return frame;
+    /// Frame is valid until next call to decode, flush or deinit.
+    pub fn decode(self: *Decoder, data: []const u8) !?Frame {
+        // First unmap the frame we previously mapped and loaned out to the
+        // caller.
+        try self.unmap_current_frame();
+
+        if (try self.dequeue_and_map_frame()) |frame| return frame;
 
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
         if (data.len > 0) {
@@ -225,39 +152,16 @@ pub const Decoder = struct {
             return err;
         }
 
-        return try self.buffer.next();
+        return try self.dequeue_and_map_frame();
     }
 
     /// Before ending decoding call flush in a loop until it returns null.
-    pub fn flush(self: *Decoder) !?*const Frame {
+    pub fn flush(self: *Decoder) !?Frame {
         // calling decode with an empty slice means flush
         return self.decode(&.{});
     }
 
-    // TODO: NVIDIA blogpost says: ulNumOutputSurfaces
-    // The application gets the final output in one of the ulNumOutputSurfaces
-    // surfaces, also called the output surface. The driver performs an internal
-    // copy—and postprocessing if deinterlacing/scaling/cropping is enabled—from
-    // decoded surface to output surface. The optimal value of ulNumOutputSurfaces
-    // depends upon the number of output buffers needed at a time. A single buffer
-    // also suffices if the applications reads—using cuvidMapVideoFrame—one output
-    // buffer at a time, that is, releasing the current frame using
-    // cuvidUnmapVideoFrame before reading the next frame. The optimal value for
-    // ulNumOutputSurfaces, therefore, depends upon how the downstream functions
-    // that follow the decoding stage are processing the data.
-
-    fn invalidate_currently_borrowed_frame(self: *Decoder) !void {
-        if (self.currently_borrowed_frame_data) |frame_data| {
-            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(
-                self.decoder,
-                frame_data,
-            ));
-
-            self.currently_borrowed_frame_data = null;
-        }
-    }
-
-    fn frame(self: *Decoder) !?*const Frame {
+    fn dequeue_and_map_frame(self: *Decoder) !?Frame {
         const parser_disp_info = self.buffer.readItem() orelse return null;
 
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
@@ -267,8 +171,6 @@ pub const Decoder = struct {
         proc_params.unpaired_field = if (parser_disp_info.repeat_first_field < 0) 1 else 0;
         // TODO: By leaving this uncommented we are defaulting to the global stream which
         // is not ideal especially in multi-decoder situations.
-        // If we are going to create entirely new contexts for every decoder (NvDecoder does this)
-        // then it's okay since there is no points in having separate streams anyway.
         // proc_params.output_stream = m_cuvidStream;
 
         var frame_data: cuda.DevicePtr = 0;
@@ -301,7 +203,7 @@ pub const Decoder = struct {
         // to the UV plane (which contains both U and V) using the surface height
         const uv_offset = surface_height * pitch;
 
-        self.currently_borrowed_frame_data = frame_data;
+        self.cur_frame_ptr = frame_data;
 
         return Frame{
             .data = .{
@@ -315,6 +217,13 @@ pub const Decoder = struct {
             },
             .timestamp = @intCast(parser_disp_info.timestamp),
         };
+    }
+
+    fn unmap_current_frame(self: *Decoder) !void {
+        if (self.cur_frame_ptr) |frame_ptr| {
+            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr));
+            self.cur_frame_ptr = null;
+        }
     }
 
     fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
@@ -377,7 +286,19 @@ pub const Decoder = struct {
         decoder_create_info.OutputFormat = .nv12;
         decoder_create_info.bitDepthMinus8 = 0;
         decoder_create_info.DeinterlaceMode = .weave;
-        decoder_create_info.ulNumOutputSurfaces = num_output_surfaces;
+        // NOTE: NVIDIA docs: "The application gets the final output in one of
+        // the ulNumOutputSurfaces surfaces, also called the output surface.
+        // The driver performs an internal copy—and postprocessing if
+        // deinterlacing/scaling/cropping is enabled—from decoded surface to
+        // output surface. The optimal value of ulNumOutputSurfaces depends
+        // upon the number of output buffers needed at a time. A single buffer
+        // also suffices if the applications reads—using cuvidMapVideoFrame—one
+        // output buffer at a time, that is, releasing the current frame using
+        // cuvidUnmapVideoFrame before reading the next frame. The optimal
+        // value for ulNumOutputSurfaces, therefore, depends upon how the
+        // downstream functions that follow the decoding stage are processing
+        // the data."
+        decoder_create_info.ulNumOutputSurfaces = 1;
         decoder_create_info.ulCreationFlags = nvdec_bindings.create_flags.prefer_CUVID;
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
         // decoder_create_info.vidLock = lock;
@@ -430,10 +351,12 @@ pub const Decoder = struct {
 
         if (self.error_state != null) return 0;
 
-        self.buffer.writeItem(parser_disp_info.?) catch {
-            self.error_state = error.FrameBufferFull;
-            return 0;
-        };
+        // NOTE: If this unreachable ever hits it means that my assumption that
+        // NVDEC will never buffer more than 4 frames for dispatch at a time is
+        // incorrect. Increase buffer size as needed.
+        self.buffer.writeItem(parser_disp_info.?.*) catch unreachable;
+
+        return 1;
     }
 };
 
@@ -637,4 +560,4 @@ pub const Error = error{
     InvalidResourceType,
     InvalidResourceConfiguration,
     Unknown,
-} || cuda.Error || error{FrameBufferFull};
+} || cuda.Error;

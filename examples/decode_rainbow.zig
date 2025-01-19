@@ -36,10 +36,17 @@ pub fn main() !void {
     try nvdec.cuda.init();
     try nvdec.load();
 
-    var decoder = try nvdec.Decoder.create(.{
-        .codec = .h264,
-        .resolution = .{ .width = width, .height = height },
-    }, allocator);
+    var context = try nvdec.cuda.Context.init(0);
+    defer context.deinit();
+
+    var decoder = try nvdec.Decoder.create(
+        &context,
+        .{
+            .codec = .h264,
+            .resolution = .{ .width = width, .height = height },
+        },
+        allocator,
+    );
     defer decoder.destroy();
 
     const file = try std.fs.cwd().openFile("rainbow.264", .{});
@@ -64,7 +71,7 @@ pub fn main() !void {
                 }
                 if (nal.items.len > 0) {
                     if (try decoder.decode(nal.items)) |frame| {
-                        try handle_frame(decoder.context, frame);
+                        try handle_frame(decoder.context, &frame);
                     }
                     nal.clearRetainingCapacity();
                     last_nal = index;
@@ -80,16 +87,16 @@ pub fn main() !void {
     }
 
     if (try decoder.decode(nal.items)) |frame| {
-        try handle_frame(decoder.context, frame);
+        try handle_frame(decoder.context, &frame);
     }
 
     while (try decoder.flush()) |frame| {
-        try handle_frame(decoder.context, frame);
+        try handle_frame(decoder.context, &frame);
     }
 }
 
 /// Print YUV values of the frame.
-fn handle_frame(cuda_context: nvdec.cuda.Context, frame: *const nvdec.Frame) !void {
+fn handle_frame(cuda_context: *nvdec.cuda.Context, frame: *const nvdec.Frame) !void {
     std.debug.assert(frame.dims.width == width);
     std.debug.assert(frame.dims.height == height);
 
