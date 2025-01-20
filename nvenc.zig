@@ -4,7 +4,7 @@ const nvenc_bindings = @import("nvenc_bindings");
 
 const nvenc_log = std.log.scoped(.nvenc_log);
 
-pub const cuda = @import("cuda"); // TODO?
+pub const cuda = @import("cuda");
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub const load = nvenc_bindings.load;
@@ -15,7 +15,7 @@ pub const H264Format = enum {
 
     fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
         return switch (self) {
-            .yuv420 => .nv12, // TODO? maybe???
+            .yuv420 => .nv12, // TODO: maybe???
             .yuv444 => .yuv44,
         };
     }
@@ -40,7 +40,7 @@ pub const HEVCFormat = enum {
 
     fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
         return switch (self) {
-            .yuv420 => .nv12, // TODO? maybe???
+            .yuv420 => .nv12, // TODO: maybe???
             .yuv444 => .yuv44,
             .yuv420_10bit => .yuv420_10bit,
             .yuv444_10bit => .yuv444_10bit,
@@ -119,101 +119,39 @@ pub const EncoderOptions = struct {
         .average_bitrate = 5_000_000,
         .max_bitrate = 10_000_000,
     } },
-    device: cuda.Device = 0,
 };
 
 pub const Encoder = struct {
-    // pub const IOItem = struct {
-    //     input_buffer: TODO,
-    //     output_bitstream: TODO,
-    //
-    //     pub fn init() IOItem {
-    //         // TODO
-    //         // allocate output bitstream
-    //     }
-    //
-    //     pub fn deinit(self: *IOItem) void {
-    //         // TODO
-    //         // deallocate output bitstream
-    //     }
-    //
-    //     pub fn lock(self: *IOItem) !void {
-    //         // TODO
-    //         // handle both registration of input surface as well as lock input and output bitstream
-    //     }
-    //
-    //     pub fn unlock(self: *IOItem) !void {
-    //         // TODO
-    //         // handle deregistration of input surface as well as unlock input and output bitstream
-    //     }
-    // };
-    //
-    // pub const IOBuffer = struct {
-    //     const Slot = struct {
-    //         todo: u64, // TODO
-    //     };
-    //
-    //     slots: []Slot,
-    //     head: usize = 0,
-    //     tail: usize = 0,
-    //
-    //     pub fn init(size: usize, allocator: std.mem.Allocator) !IOBuffer {
-    //         const data = allocator.alloc(IOItem, size);
-    //         for (&data) |*item| {
-    //             item.* = IOItem.init();
-    //         }
-    //         return IOBuffer{ .ring_buffer = RingBuffer(IOItem).init(data) };
-    //     }
-    //
-    //     pub fn deinit(self: *IOBuffer, allocator: std.mem.Allocator) void {
-    //         for (&self.ring_buffer.data) |*item| {
-    //             item.deinit();
-    //         }
-    //         allocator.free(self.ring_buffer.data);
-    //     }
-    //
-    //     /// Claim I/O item.
-    //     /// Returns an error if the IO buffer is full.
-    //     pub fn claim(self: *IOBuffer) !*const IOItem {
-    //         // TODO
-    //     }
-    //
-    //     ///
-    //     pub fn loan_current_output() ?[]u8 {
-    //         // TODO
-    //     }
-    //
-    //     // TODO: Name
-    //     pub fn invalidate_current_output(self: *IOBuffer, writer: anytype) void {
-    //         // TODO: one at a time so we can avoid buffering?
-    //     }
-    // };
+    const IOCacheItem = struct {
+        input_registered_resource: nvenc_bindings.RegisteredPtr,
+        input_mapped_resource: nvenc_bindings.InputPtr,
+        output_bitstream: nvenc_bindings.OutputPtr,
+    };
 
-    context: cuda.Context,
+    context: *cuda.Context,
     encoder: ?*anyopaque,
+    format: nvenc_bindings.BufferFormat,
+    parameter_sets: []u8,
 
-    buffer: std.fifo.LinearFifo(struct { input: u8, output: u8 }, .Slice),
+    // The IO cache is needed to keep track of input/output pairs that have
+    // been buffered by the encoder. If the encoder produces need_more_input it
+    // means more input is needed to produce a frame. In this case we must keep
+    // track of the input buffers so we can keep them registered and mapped
+    // until we can drain the encoder buffer, which is the next time
+    // nvEncEncodePicture returns success.
+    io_cache_items: []IOCacheItem,
+    io_cache: std.fifo.LinearFifo(IOCacheItem, .Slice),
+    draining: bool,
 
-    // TODO: io_buffer: RingBuffer(struct {}),
+    cur_output_ptr: ?nvenc_bindings.OutputPtr = null,
 
-    // state: struct {
-    //     cache: []struct {
-    //         input: struct {},
-    //         output: struct {},
-    //     },
-    //
-    //     input_index: usize,
-    //     output_index: usize,
-    // },
+    allocator: std.mem.Allocator,
 
-    pub fn init(options: EncoderOptions, allocator: std.mem.Allocator) !Encoder {
-        const context = try cuda.Context.init(options.device);
-        errdefer context.deinit();
-
+    pub fn init(context: *cuda.Context, options: EncoderOptions, allocator: std.mem.Allocator) !Encoder {
         var encoder: ?*anyopaque = null;
 
         var params = std.mem.zeroes(nvenc_bindings.OpenSessionExParams);
-        params.version = nvenc_bindings.open_encode_session_ex_params_ver;
+        params.version = nvenc_bindings.open_encode_session_erx_params_ver;
         params.deviceType = .cuda;
         params.device = context.inner;
         params.apiVersion = nvenc_bindings.version;
@@ -267,6 +205,7 @@ pub const Encoder = struct {
         config.frameIntervalP = 1; // IPP mode
         config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
 
+        var format = undefined;
         switch (options.codec) {
             .h264 => |h264_options| {
                 config.profileGUID = switch (h264_options.profile) {
@@ -279,10 +218,11 @@ pub const Encoder = struct {
                     .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
                     .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
                 };
-                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (h264_options.profile) {
+                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (h264_options.format) {
                     .yuv420 => 1,
                     .yuv444 => 3,
                 };
+                format = h264_options.format.to_inner();
             },
             .hevc => |hevc_options| {
                 config.profileGUID = switch (hevc_options.profile) {
@@ -294,10 +234,11 @@ pub const Encoder = struct {
                     .yuv420, .yuv420_10bit => 1,
                     .yuv444, .yuv444_10bit => 3,
                 };
-                config.encodeCodecConfig.h264Config.pixelBitDepthMinus8 = switch (hevc_options.profile) {
+                config.encodeCodecConfig.h264Config.pixelBitDepthMinus8 = switch (hevc_options.format) {
                     .yuv420_10bit, .yuv444_10bit => 2,
                     .yuv420, .yuv444 => 0,
                 };
+                format = hevc_options.format.to_inner();
             },
         }
 
@@ -339,89 +280,203 @@ pub const Encoder = struct {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
         };
 
-        // TODO: num buffers
-        // m_nEncoderBuffer = m_encodeConfig.frameIntervalP + m_encodeConfig.rcParams.lookaheadDepth + m_nExtraOutputDelay;
-        // m_nOutputDelay = m_nEncoderBuffer - 1;
+        const sequence_param_payload_cap = 1024;
+        var sequence_param_payload_buf = allocator.alloc(u8, sequence_param_payload_cap);
+        var sequence_param_payload_size: u32 = 0;
+        var sequence_param_payload = std.mem.zeroes(nvenc_bindings.SequenceParamPayload);
+        sequence_param_payload.version = nvenc_bindings.sequence_param_payload_ver;
+        sequence_param_payload.spsppsBuffer = sequence_param_payload_buf.ptr;
+        sequence_param_payload.inBufferSize = sequence_param_payload_cap;
+        sequence_param_payload.outSPSPPSPayloadSize = &sequence_param_payload_size;
+        try status(nvenc_bindings.nvEncGetSequenceParams.?(encoder, &sequence_param_payload));
+        sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
 
-        const buffer_size = config.frameIntervalP + config.rcParams.lookaheadDepth;
+        const cache_size = config.frameIntervalP + config.rcParams.lookaheadDepth;
 
-        const items = allocator.alloc(struct {}, buffer_size);
-        for (items) |item| {
-            item.input = null;
-            item.output = TODO; // TODO: allocate
+        const io_cache_items = allocator.alloc(struct {}, cache_size);
+        errdefer allocator.free(io_cache_items);
+
+        for (&io_cache_items) |*item| {
+            var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
+            create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
+            try status(nvenc_bindings.nvEncCreateBitstreamBuffer(encoder, &create_bitstream_buffer));
+            item.* = .{
+                .input_registered_resource = null,
+                .output_bitstream = create_bitstream_buffer.bitstreamBuffer,
+            };
         }
-        // TODO: item.output dealloc in deinit
 
-        // TODO: not sure about this we want to load the data from GPU actually
-        // var create_input_buffer = std.mem.zeroes(nvenc_bindings.CreateInputBuffer);
-        // create_input_buffer.version = nvenc_bindings.create_input_buffer_ver;
-        //
-        // try status(nvenc_bindings.nvEncCreateInputBuffer(encoder, &create_input_buffer));
-        // errdefer status(nvenc_bindings.nvEncDestroyInputBuffer(encoder, create_input_buffer.inputBuffer)) catch |err| {
-        //     nvenc_log.err("failed to destroy input buffer (err = {})", .{err});
-        // };
-        //
-        // std.debug.assert(create_input_buffer.width == options.resolution.width);
-        // std.debug.assert(create_input_buffer.height == options.resolution.height);
-        // std.debug.assert(create_input_buffer.bufferFmt == switch (options.codec) {
-        //     .h264 => |h264_options| h264_options.format,
-        //     .hevc => |hevc_options| hevc_options.format,
-        // });
-
-        // TODO: store pointer
-        // TODO: destroy
-
-        var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
-        create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
-
-        try status(nvenc_bindings.nvEncCreateBitstreamBuffer(encoder, &create_bitstream_buffer));
-        errdefer status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, create_bitstream_buffer.bitstreamBuffer)) catch |err| {
-            nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
-        };
-
-        // TODO: store pointer
-        // TODO: destroy
+        errdefer {
+            for (&io_cache_items) |*item| {
+                status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, item.output_bitstream)) catch |err| {
+                    nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
+                };
+            }
+        }
 
         return Encoder{
             .context = context,
             .encoder = encoder,
-            .io_queue = IOQueue.init(),
+            .format = format,
+            .parameter_sets = sequence_param_payload_buf,
+            .io_cache_items = io_cache_items,
+            .io_cache = std.fifo.LinearFifo(IOCacheItem, .Slice).init(io_cache_items),
+            .draining = false,
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *Encoder) void {
+        self.unlock_current_output() catch |err| {
+            nvenc_log.err("failed to unlock current bitstream (err = {})", .{err});
+        };
+
+        // User must flush encoder before deinit. If the cache has items still
+        // it means the user did not flush properly.
+        std.debug.assert(self.io_cache.readableLength() == 0);
+        self.io_cache.deinit();
+
+        for (&self.io_cache_items) |*item| {
+            status(nvenc_bindings.nvEncDestroyBitstreamBuffer(self.encoder, item.output_bitstream)) catch |err| {
+                nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
+            };
+        }
+        self.allocator.free(self.io_cache_items);
+
         status(nvenc_bindings.?.nvEncDestroyEncoder(self.encoder)) catch |err| {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
         };
-
-        self.context.deinit();
     }
 
-    // TODO: Still not sure how to handle NV_ENC_ERR_NEED_MORE_INPUT. Opened a
-    // thread here:
-    // https://forums.developer.nvidia.com/t/how-to-handle-buffers-when-nvencencodepicture-produces-nv-enc-err-need-more-input/320435
+    /// Frame is valid until next call to decode, flush or deinit.
+    pub fn encode(
+        self: *Encoder,
+        frame: struct {
+            data: []u8,
+            width: u32,
+            height: u32,
+            stride: u32,
+        },
+    ) !?[]const u8 {
+        try self.unlock_current_output();
 
-    // TODO: The client must call NvEncLockBitstream with flag
-    // NV_ENC_LOCK_BITSTREAM::doNotWait set to 0, so that the lock call blocks
-    // until the hardware encoder finishes writing the output bitstream. The
-    // client can then operate on the generated bitstream data and call
-    // NvEncUnlockBitstream. This is the only mode supported on Linux.
+        if (self.drain()) |drained_output| return drained_output;
 
-    // TODO: Notifying the End of Input Stream: To notify the end of input
-    // stream, the client must call NvEncEncodePicture with the flag
-    // NV_ENC_PIC_PARAMS:: encodePicFlags set to NV_ENC_FLAGS_EOS and all other
-    // members of NV_ENC_PIC_PARAMS set to 0. No input buffer is required while
-    // calling NvEncEncodePicture for EOS notification. EOS notification
-    // effectively flushes the encoder. This can be called multiple times in a
-    // single encode session. This operation however must be done before
-    // closing the encode session.
+        // NOTE: If this hits it means that we do not have enough cache space
+        // which should not be possible given we caclculated the max number of
+        // buffered output we can expect for cache_size.
+        std.debug.assert(self.io_cache.writableLength() > 0);
 
-    // TODO: NvEncGetSequenceParams
-    // we may want this for openh264 as well...?
+        const io_cache_item = &self.io_cache.writableSlice(0)[0];
 
-    // TODO: add buffer info stride etc.
-    pub fn encode(self: *Encoder, frame: cuda.DevicePtr) ![]const u8 {
-        // TODO
+        var register_resource = std.mem.zeroes(nvenc_bindings.RegisterResource);
+        register_resource.version = nvenc_bindings.register_resource_ver;
+        register_resource.resourceType = .cudadeviceptr;
+        register_resource.resourceToRegister = frame.data.ptr;
+        register_resource.width = frame.width;
+        register_resource.height = frame.height;
+        register_resource.pitch = frame.stride;
+        register_resource.bufferFormat = self.format; // TODO: asserts!
+        try status(nvenc_bindings.nvEncRegisterResource(self.encoder, &register_resource));
+        errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch |err| {
+            nvenc_log.err("failed to unregister resource (err = {})", .{err});
+        };
+        io_cache_item.input_registered_resource = register_resource.registeredResource;
+
+        var map_input_resource = std.mem.zeroes(nvenc_bindings.MapInputResource);
+        map_input_resource.version = nvenc_bindings.map_input_resource_ver;
+        map_input_resource.registeredResource = register_resource.registeredResource;
+        try status(nvenc_bindings.nvEncMapInputResource(self.encoder, &map_input_resource));
+        errdefer status(nvenc_bindings.nvEncUnmapResource(self.encoder, map_input_resource.mappedResource)) catch |err| {
+            nvenc_log.err("failed to unmap resource (err = {})", .{err});
+        };
+        io_cache_item.input_mapped_resource = map_input_resource.mappedResource;
+
+        var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
+        pic_params.version = nvenc_bindings.pic_params_ver;
+        pic_params.pictureStruct = .frame;
+        pic_params.inputBuffer = map_input_resource.mappedResource;
+        pic_params.bufferFormat = self.format;
+        pic_params.inputWidth = frame.width;
+        pic_params.inputHeight = frame.height;
+        pic_params.outputBitstream = io_cache_item.output_bitstream;
+        const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
+
+        // This will cause head to increment.
+        // The current input output pair will be cached.
+        self.io_cache.update(1);
+
+        // In case of success, we drain cached I/O. In most cases that will
+        // only be the item we just put in the cache. In other cases if the
+        // encoder has previously delayed output (i.e. need_more_input) we
+        // continue draining.
+        if (encode_status == .success) self.draining = true;
+
+        return self.drain();
+    }
+
+    /// Before ending encoding call flush in a loop until it returns null.
+    pub fn flush(self: *Encoder) ?[]const u8 {
+        try self.unlock_current_output();
+
+        if (self.drain()) |drained_output| return drained_output;
+
+        // NOTE: NVIDIA docs seem unclear on what exactly this does but makes
+        // sense that it will flush the internal buffer. In which case we
+        // expect nvEncEncodePicture to always return success in this case.
+        // Then we can drain the rest of the buffer.
+        var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
+        pic_params.version = nvenc_bindings.pic_params_ver;
+        pic_params.encodePicFlags = nvenc_bindings.pic_flag_eos;
+        try status(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
+
+        self.draining = true;
+
+        return self.drain();
+    }
+
+    fn drain(self: *Encoder) ?[]const u8 {
+        if (!self.draining) return null;
+
+        if (self.io_cache.readableLength() == 0) {
+            // entire cache was drained
+            self.draining = false;
+            return null;
+        }
+
+        const read_item = self.io_cache.readableSliceOfLen(1)[0];
+
+        try status(nvenc_bindings.nvEncUnmapResource(self.encoder, read_item.input_mapped_resource));
+        read_item.input_mapped_resource = null;
+        try status(nvenc_bindings.nvEncUnregisterResource(self.encoder, read_item.input_registered_resource));
+        read_item.input_registered_resource = null;
+
+        var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
+        lock_bitstream.outputBitstream = read_item.output_bitstream;
+        lock_bitstream.doNotWait = false; // this is mandatory in sync mode
+        try status(nvenc_bindings.nvEncLockBitstream(self.encoder, &lock_bitstream));
+        errdefer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, read_item.output_bitstream)) catch |err| {
+            nvenc_log.err("failed to unlock bitstream (err = {})", .{err});
+        };
+
+        // store pointer to bitstream in cur_output_ptr so it can be unlocked
+        // and invalidated on next iteration of decode
+        self.cur_output_ptr = read_item.output_bitstream;
+
+        // This will increment the tail pointer.
+        // The I/O pair is marked as done/drained.
+        self.io_cache.discard(1);
+
+        const slice_ptr = @as([*]u8, @ptrCast(lock_bitstream.bitstreamBufferPtr));
+        const slice = slice_ptr[0..lock_bitstream.bitstreamSizeInBytes];
+        return slice;
+    }
+
+    fn unlock_current_output(self: *Encoder) !void {
+        if (self.cur_output_ptr) |output_ptr| {
+            try status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, output_ptr));
+            self.cur_output_ptr = null;
+        }
     }
 };
 
@@ -445,6 +500,39 @@ fn status(ret: nvenc_bindings.Status) Error!void {
         .invalid_version => return error.InvalidVersion,
         .map_failed => return error.MapFailed,
         .need_more_input => return error.NeedMoreInput,
+        .encoder_busy => return error.EncoderBusy,
+        .event_not_registerd => return error.EventNotRegisterd,
+        .generic => return error.Generic,
+        .incompatible_client_key => return error.IncompatibleClientKey,
+        .unimplemented => return error.Unimplemented,
+        .resource_register_failed => return error.ResourceRegisterFailed,
+        .resource_not_registered => return error.ResourceNotRegistered,
+        .resource_not_mapped => return error.ResourceNotMapped,
+    }
+}
+
+/// Same as status but need_more_input is not considered an error.
+/// In case of success returns either success or need_more_input.
+fn status_or_need_more_input(ret: nvenc_bindings.Status) Error!enum { success, need_more_input } {
+    switch (ret) {
+        .success => return .success,
+        .need_more_input => return .need_more_input,
+        .no_encode_device => return error.NoEncodeDevice,
+        .unsupported_device => return error.UnsupportedDevice,
+        .invalid_encoderdevice => return error.InvalidEncoderDevice,
+        .invalid_device => return error.InvalidDevice,
+        .device_not_exist => return error.DeviceNotExist,
+        .invalid_ptr => return error.InvalidPtr,
+        .invalid_event => return error.InvalidEvent,
+        .invalid_param => return error.InvalidParam,
+        .invalid_call => return error.InvalidCall,
+        .out_of_memory => return error.OutOfMemory,
+        .encoder_not_initialized => return error.EncoderNotInitialized,
+        .unsupported_param => return error.UnsupportedParam,
+        .lock_busy => return error.LockBusy,
+        .not_enough_buffer => return error.NotEnoughBuffer,
+        .invalid_version => return error.InvalidVersion,
+        .map_failed => return error.MapFailed,
         .encoder_busy => return error.EncoderBusy,
         .event_not_registerd => return error.EventNotRegisterd,
         .generic => return error.Generic,
@@ -482,22 +570,4 @@ pub const Error = error{
     ResourceRegisterFailed,
     ResourceNotRegistered,
     ResourceNotMapped,
-};
-
-// TODO: this seems unnecessary
-pub const RingBufferState = struct {
-    head_index: usize = 0,
-    tail_index: usize = 0,
-    len: usize,
-
-    fn increment_head(self: *RingBufferState) !void {
-        const new_head_index = (self.head_index + 1) % self.len;
-        if (new_head_index == self.tail_index) return error.Full;
-        self.head_index = new_head_index;
-    }
-
-    fn increment_tail(self: *RingBufferState) !void {
-        const new_tail_index = (self.tail_index + 1) % self.len;
-        if (new_tail_index != self.head_index) self.tail_index = new_tail_index;
-    }
 };
