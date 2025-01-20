@@ -141,9 +141,6 @@ pub const Encoder = struct {
     // nvEncEncodePicture returns success.
     io_cache_items: []IOCacheItem,
     io_cache: std.fifo.LinearFifo(IOCacheItem, .Slice),
-    draining: bool,
-
-    cur_output_ptr: ?nvenc_bindings.OutputPtr = null,
 
     allocator: std.mem.Allocator,
 
@@ -276,9 +273,7 @@ pub const Encoder = struct {
         }
 
         try status(nvenc_bindings.nvEncInitializeEncoder(encoder, &initialize_params));
-        errdefer status(nvenc_bindings.nvEncDestroyEncoder(encoder)) catch |err| {
-            nvenc_log.err("failed to destroy encoder (err = {})", .{err});
-        };
+        errdefer status(nvenc_bindings.nvEncDestroyEncoder(encoder)) catch unreachable;
 
         const sequence_param_payload_cap = 1024;
         var sequence_param_payload_buf = allocator.alloc(u8, sequence_param_payload_cap);
@@ -288,14 +283,21 @@ pub const Encoder = struct {
         sequence_param_payload.spsppsBuffer = sequence_param_payload_buf.ptr;
         sequence_param_payload.inBufferSize = sequence_param_payload_cap;
         sequence_param_payload.outSPSPPSPayloadSize = &sequence_param_payload_size;
-        try status(nvenc_bindings.nvEncGetSequenceParams.?(encoder, &sequence_param_payload));
+        status(nvenc_bindings.nvEncGetSequenceParams.?(encoder, &sequence_param_payload)) catch unreachable;
         sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
 
         const cache_size = config.frameIntervalP + config.rcParams.lookaheadDepth;
 
-        const io_cache_items = allocator.alloc(struct {}, cache_size);
+        const io_cache_items = allocator.alloc(IOCacheItem, cache_size);
         errdefer allocator.free(io_cache_items);
 
+        errdefer {
+            for (&io_cache_items) |*item| {
+                if (item.* != undefined) status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, item.output_bitstream)) catch |err| {
+                    nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
+                };
+            }
+        }
         for (&io_cache_items) |*item| {
             var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
             create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
@@ -306,14 +308,6 @@ pub const Encoder = struct {
             };
         }
 
-        errdefer {
-            for (&io_cache_items) |*item| {
-                status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, item.output_bitstream)) catch |err| {
-                    nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
-                };
-            }
-        }
-
         return Encoder{
             .context = context,
             .encoder = encoder,
@@ -321,7 +315,6 @@ pub const Encoder = struct {
             .parameter_sets = sequence_param_payload_buf,
             .io_cache_items = io_cache_items,
             .io_cache = std.fifo.LinearFifo(IOCacheItem, .Slice).init(io_cache_items),
-            .draining = false,
             .allocator = allocator,
         };
     }
@@ -357,11 +350,8 @@ pub const Encoder = struct {
             height: u32,
             stride: u32,
         },
-    ) !?[]const u8 {
-        try self.unlock_current_output();
-
-        if (self.drain()) |drained_output| return drained_output;
-
+        writer: anytype,
+    ) !void {
         // NOTE: If this hits it means that we do not have enough cache space
         // which should not be possible given we caclculated the max number of
         // buffered output we can expect for cache_size.
@@ -378,18 +368,14 @@ pub const Encoder = struct {
         register_resource.pitch = frame.stride;
         register_resource.bufferFormat = self.format; // TODO: asserts!
         try status(nvenc_bindings.nvEncRegisterResource(self.encoder, &register_resource));
-        errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch |err| {
-            nvenc_log.err("failed to unregister resource (err = {})", .{err});
-        };
+        errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch unreachable;
         io_cache_item.input_registered_resource = register_resource.registeredResource;
 
         var map_input_resource = std.mem.zeroes(nvenc_bindings.MapInputResource);
         map_input_resource.version = nvenc_bindings.map_input_resource_ver;
         map_input_resource.registeredResource = register_resource.registeredResource;
         try status(nvenc_bindings.nvEncMapInputResource(self.encoder, &map_input_resource));
-        errdefer status(nvenc_bindings.nvEncUnmapResource(self.encoder, map_input_resource.mappedResource)) catch |err| {
-            nvenc_log.err("failed to unmap resource (err = {})", .{err});
-        };
+        errdefer status(nvenc_bindings.nvEncUnmapResource(self.encoder, map_input_resource.mappedResource)) catch unreachable;
         io_cache_item.input_mapped_resource = map_input_resource.mappedResource;
 
         var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
@@ -406,21 +392,14 @@ pub const Encoder = struct {
         // The current input output pair will be cached.
         self.io_cache.update(1);
 
-        // In case of success, we drain cached I/O. In most cases that will
-        // only be the item we just put in the cache. In other cases if the
-        // encoder has previously delayed output (i.e. need_more_input) we
-        // continue draining.
-        if (encode_status == .success) self.draining = true;
-
-        return self.drain();
+        // NOTE: If encoder returns success it means we can now drain all
+        // queued IO. If it returns need_more_input we need to wait until the
+        // next time it returns success (no data will be written in that case).
+        if (encode_status == .success) self.drain(writer);
     }
 
-    /// Before ending encoding call flush in a loop until it returns null.
-    pub fn flush(self: *Encoder) ?[]const u8 {
-        try self.unlock_current_output();
-
-        if (self.drain()) |drained_output| return drained_output;
-
+    /// Before ending encoding call this function to flush buffered output.
+    pub fn flush(self: *Encoder, writer: anytype) !void {
         // NOTE: NVIDIA docs seem unclear on what exactly this does but makes
         // sense that it will flush the internal buffer. In which case we
         // expect nvEncEncodePicture to always return success in this case.
@@ -430,52 +409,25 @@ pub const Encoder = struct {
         pic_params.encodePicFlags = nvenc_bindings.pic_flag_eos;
         try status(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
 
-        self.draining = true;
-
-        return self.drain();
+        self.drain(writer);
     }
 
-    fn drain(self: *Encoder) ?[]const u8 {
-        if (!self.draining) return null;
+    fn drain(self: *Encoder, writer: anytype) !void {
+        while (self.io_cache.readItem()) |read_item| {
+            status(nvenc_bindings.nvEncUnmapResource(self.encoder, read_item.input_mapped_resource)) catch unreachable;
+            status(nvenc_bindings.nvEncUnregisterResource(self.encoder, read_item.input_registered_resource)) catch unreachable;
 
-        if (self.io_cache.readableLength() == 0) {
-            // entire cache was drained
-            self.draining = false;
-            return null;
-        }
+            var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
+            lock_bitstream.outputBitstream = read_item.output_bitstream;
+            lock_bitstream.doNotWait = false; // this is mandatory in sync mode
+            status(nvenc_bindings.nvEncLockBitstream(self.encoder, &lock_bitstream)) catch unreachable;
 
-        const read_item = self.io_cache.readableSliceOfLen(1)[0];
+            defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, read_item.output_bitstream)) catch unreachable;
 
-        try status(nvenc_bindings.nvEncUnmapResource(self.encoder, read_item.input_mapped_resource));
-        read_item.input_mapped_resource = null;
-        try status(nvenc_bindings.nvEncUnregisterResource(self.encoder, read_item.input_registered_resource));
-        read_item.input_registered_resource = null;
+            const slice_ptr = @as([*]u8, @ptrCast(lock_bitstream.bitstreamBufferPtr));
+            const slice = slice_ptr[0..lock_bitstream.bitstreamSizeInBytes];
 
-        var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
-        lock_bitstream.outputBitstream = read_item.output_bitstream;
-        lock_bitstream.doNotWait = false; // this is mandatory in sync mode
-        try status(nvenc_bindings.nvEncLockBitstream(self.encoder, &lock_bitstream));
-        errdefer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, read_item.output_bitstream)) catch |err| {
-            nvenc_log.err("failed to unlock bitstream (err = {})", .{err});
-        };
-
-        // store pointer to bitstream in cur_output_ptr so it can be unlocked
-        // and invalidated on next iteration of decode
-        self.cur_output_ptr = read_item.output_bitstream;
-
-        // This will increment the tail pointer.
-        // The I/O pair is marked as done/drained.
-        self.io_cache.discard(1);
-
-        const slice_ptr = @as([*]u8, @ptrCast(lock_bitstream.bitstreamBufferPtr));
-        const slice = slice_ptr[0..lock_bitstream.bitstreamSizeInBytes];
-        return slice;
-    }
-
-    fn unlock_current_output(self: *Encoder) !void {
-        if (self.cur_output_ptr) |output_ptr| {
-            try status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, output_ptr));
-            self.cur_output_ptr = null;
+            try writer.writeAll(slice);
         }
     }
 };

@@ -86,9 +86,7 @@ pub const Decoder = struct {
         parser_params.pfnDecodePicture = handleDecodePicture;
         parser_params.pfnDisplayPicture = handleDisplayPicture;
         try result(nvdec_bindings.cuvidCreateVideoParser.?(&self.parser, &parser_params));
-        errdefer result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
-            nvdec_log.err("failed to destroy video parser (err = {})", .{err});
-        };
+        errdefer result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
 
         return self;
     }
@@ -107,16 +105,8 @@ pub const Decoder = struct {
         // properly.
         std.debug.assert(self.frame_queue.readItem() == null);
 
-        if (self.parser != null) {
-            result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch |err| {
-                nvdec_log.err("failed to destroy video parser (err = {})", .{err});
-            };
-        }
-        if (self.decoder != null) {
-            result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch |err| {
-                nvdec_log.err("failed to destroy decoder (err = {})", .{err});
-            };
-        }
+        if (self.parser != null) result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
+        if (self.decoder != null) result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch unreachable;
 
         self.allocator.destroy(self);
     }
@@ -125,7 +115,7 @@ pub const Decoder = struct {
     pub fn decode(self: *Decoder, data: []const u8) !?Frame {
         // First unmap the frame we previously mapped and loaned out to the
         // caller.
-        try self.unmap_current_frame();
+        self.unmap_current_frame();
 
         if (try self.dequeue_and_map_frame()) |frame| return frame;
 
@@ -181,11 +171,11 @@ pub const Decoder = struct {
         std.debug.assert(frame_data != 0);
 
         var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        try result(nvdec_bindings.cuvidGetDecodeStatus.?(
+        result(nvdec_bindings.cuvidGetDecodeStatus.?(
             self.decoder,
             parser_disp_info.picture_index,
             &get_decode_status,
-        ));
+        )) catch unreachable;
 
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
@@ -215,9 +205,9 @@ pub const Decoder = struct {
         };
     }
 
-    fn unmap_current_frame(self: *Decoder) !void {
+    fn unmap_current_frame(self: *Decoder) void {
         if (self.cur_frame_ptr) |frame_ptr| {
-            try result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr));
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
             self.cur_frame_ptr = null;
         }
     }
