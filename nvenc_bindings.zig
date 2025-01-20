@@ -80,6 +80,12 @@ pub const BufferFormat = enum(c_uint) {
     u8 = 1073741824,
 };
 
+pub const BufferUsage = enum(c_uint) {
+    input_image = 0,
+    output_motion_vector = 1,
+    output_bitstream = 2,
+};
+
 pub const DeviceType = enum(c_uint) {
     directx = 0,
     cuda = 1,
@@ -117,6 +123,13 @@ pub const HEVCCusize = enum(c_uint) {
     @"16x16" = 2,
     @"32x32" = 3,
     @"64x64" = 4,
+};
+
+pub const InputResourceType = enum(c_uint) {
+    directx = 0,
+    cudadeviceptr = 1,
+    cudaarray = 2,
+    opengl_tex = 3,
 };
 
 pub const Level = enum(c_uint) {
@@ -267,6 +280,7 @@ pub const StereoPackingMode = enum(c_uint) {
 
 pub const InputPtr = ?*opaque {};
 pub const OutputPtr = ?*opaque {};
+pub const RegisteredPtr = ?*opaque {};
 
 pub const CodecConfig = extern union {
     h264Config: ConfigH264,
@@ -526,6 +540,17 @@ pub const LockInputBuffer = extern struct {
     _reserved2: [64]?*anyopaque,
 };
 
+pub const MapInputResource = extern struct {
+    version: u32,
+    subResourceIndex: u32,
+    inputResource: ?*anyopaque,
+    registeredResource: RegisteredPtr,
+    mappedResource: InputPtr,
+    mappedBufferFmt: BufferFormat,
+    _reserved1: [251]u32,
+    _reserved2: [63]?*anyopaque,
+};
+
 pub const OpenEncodeSessionExParams = extern struct {
     version: u32,
     deviceType: DeviceType,
@@ -641,6 +666,21 @@ pub const RcParams = extern struct {
     _reserved: [7]u32,
 };
 
+pub const RegisterResource = extern struct {
+    version: u32,
+    resourceType: InputResourceType,
+    width: u32,
+    height: u32,
+    pitch: u32,
+    subResourceIndex: u32,
+    resourceToRegister: ?*anyopaque,
+    registeredResource: RegisteredPtr,
+    bufferFormat: BufferFormat,
+    bufferUsage: BufferUsage,
+    _reserved1: [247]u32,
+    _reserved2: [62]?*anyopaque,
+};
+
 pub const SeiPayload = extern struct {
     payloadSize: u32,
     payloadType: u32,
@@ -686,13 +726,13 @@ pub const ApiFunctionList = extern struct {
     nvEncGetSequenceParams: ?*const fn (?*anyopaque, ?*SequenceParamPayload) callconv(.C) Status,
     __nvEncRegisterAsyncEvent: ?*anyopaque, // not included in bindings
     __nvEncUnregisterAsyncEvent: ?*anyopaque, // not included in bindings
-    __nvEncMapInputResource: ?*anyopaque, // not included in bindings
-    __nvEncUnmapInputResource: ?*anyopaque, // not included in bindings
+    nvEncMapInputResource: ?*const fn (?*anyopaque, ?*MapInputResource) callconv(.C) Status,
+    nvEncUnmapInputResource: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status,
     nvEncDestroyEncoder: ?*const fn (?*anyopaque) callconv(.C) Status,
     __nvEncInvalidateRefFrames: ?*anyopaque, // not included in bindings
     nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*anyopaque) callconv(.C) Status,
-    __nvEncRegisterResource: ?*anyopaque, // not included in bindings
-    __nvEncUnregisterResource: ?*anyopaque, // not included in bindings
+    nvEncRegisterResource: ?*const fn (?*anyopaque, ?*RegisterResource) callconv(.C) Status,
+    nvEncUnregisterResource: ?*const fn (?*anyopaque, RegisteredPtr) callconv(.C) Status,
     __nvEncReconfigureEncoder: ?*anyopaque, // not included in bindings
     _reserved1: ?*anyopaque,
     __nvEncCreateMVBuffer: ?*anyopaque, // not included in bindings
@@ -716,8 +756,12 @@ pub var nvEncUnlockBitstream: ?*const fn (?*anyopaque, OutputPtr) callconv(.C) S
 pub var nvEncLockInputBuffer: ?*const fn (?*anyopaque, ?*LockInputBuffer) callconv(.C) Status = null;
 pub var nvEncUnlockInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status = null;
 pub var nvEncGetSequenceParams: ?*const fn (?*anyopaque, ?*SequenceParamPayload) callconv(.C) Status = null;
+pub var nvEncMapInputResource: ?*const fn (?*anyopaque, ?*MapInputResource) callconv(.C) Status = null;
+pub var nvEncUnmapInputResource: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status = null;
 pub var nvEncDestroyEncoder: ?*const fn (?*anyopaque) callconv(.C) Status = null;
 pub var nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*anyopaque) callconv(.C) Status = null;
+pub var nvEncRegisterResource: ?*const fn (?*anyopaque, ?*RegisterResource) callconv(.C) Status = null;
+pub var nvEncUnregisterResource: ?*const fn (?*anyopaque, RegisteredPtr) callconv(.C) Status = null;
 pub var nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8 = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
@@ -760,7 +804,11 @@ pub fn load() !void {
     nvEncLockInputBuffer = function_list.nvEncLockInputBuffer;
     nvEncUnlockInputBuffer = function_list.nvEncUnlockInputBuffer;
     nvEncGetSequenceParams = function_list.nvEncGetSequenceParams;
+    nvEncMapInputResource = function_list.nvEncMapInputResource;
+    nvEncUnmapInputResource = function_list.nvEncUnmapInputResource;
     nvEncDestroyEncoder = function_list.nvEncDestroyEncoder;
     nvEncOpenEncodeSessionEx = function_list.nvEncOpenEncodeSessionEx;
+    nvEncRegisterResource = function_list.nvEncRegisterResource;
+    nvEncUnregisterResource = function_list.nvEncUnregisterResource;
     nvEncGetLastErrorString = function_list.nvEncGetLastErrorString;
 }
