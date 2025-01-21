@@ -654,7 +654,7 @@ pub const PicParamsMVC = extern struct {
     viewID: u32,
     temporalID: u32,
     priorityID: u32,
-    _reserved1: [12]u3,
+    _reserved1: [12]u32,
     _reserved2: [8]?*anyopaque,
 };
 
