@@ -401,6 +401,10 @@ pub const Encoder = struct {
         pic_params.bufferFmt = buffer_format;
         pic_params.inputWidth = frame.dims.width;
         pic_params.inputHeight = frame.dims.height;
+        // TODO: Bug here because I misunderstood what LinearFifo.discard does.
+        // It will actually set to undefind after discard. So it is not
+        // supposed to be used with a "backing" slice like I was using it. Will
+        // need to use a more generic ring buffer approach here.
         pic_params.outputBitstream = io_cache_item.output_bitstream;
         const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture.?(self.encoder, &pic_params));
 
