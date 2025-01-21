@@ -216,7 +216,8 @@ pub const Encoder = struct {
         var preset_config = std.mem.zeroes(nvenc_bindings.PresetConfig);
         preset_config.version = nvenc_bindings.preset_config_ver;
         preset_config.presetCfg.version = nvenc_bindings.config_ver;
-        try status(nvenc_bindings.nvEncGetEncodePresetConfig.?(encoder, codec_guid, preset_guid, &preset_config));
+        // TODO: update
+        try status(nvenc_bindings.nvEncGetEncodePresetConfigEx.?(encoder, codec_guid, preset_guid, &preset_config));
 
         config.frameIntervalP = 1; // IPP mode
         config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
@@ -323,6 +324,8 @@ pub const Encoder = struct {
                 .output_bitstream = create_bitstream_buffer.bitstreamBuffer,
             };
         }
+
+        // TODO: perf: Use nvEncSetIOCudaStreams to assign CUDA streams.
 
         return Encoder{
             .context = context,
