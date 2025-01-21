@@ -1,6 +1,6 @@
 .{
     .name = "nvidia-video-codec-sdk",
-    .version = "9.0.20",
+    .version = "10.0.26",
     .dependencies = .{},
     .paths = .{
         "LICENSE-APACHE",

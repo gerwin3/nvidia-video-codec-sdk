@@ -1,1 +1,0 @@
-These are the header files on which the bindings (nvdec_bindings.zig, nvenc_bindings.zig) are based. They are pulled from the SDK version 9.0.20. They require at least driver version 418, and CUDA version 10.0. They are slightly modified to remove bitfields since translate-c will fail to translate them.

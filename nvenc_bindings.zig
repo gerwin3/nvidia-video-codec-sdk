@@ -1,4 +1,4 @@
-pub const api_major_version: u32 = 9;
+pub const api_major_version: u32 = 10;
 pub const api_minor_version: u32 = 0;
 pub const api_version: u32 = api_major_version | (api_minor_version << 24);
 
@@ -17,6 +17,7 @@ pub const initialize_params_ver = struct_version(5) | (1 << 31);
 pub const reconfigure_params_ver = struct_version(1) | (1 << 31);
 pub const preset_config_ver = struct_version(4) | (1 << 31);
 pub const pic_params_ver = struct_version(4) | (1 << 31);
+pub const pic_params_mvc_ver = struct_version(1);
 pub const meonly_params_ver = struct_version(3);
 pub const lock_bitstream_ver = struct_version(1);
 pub const lock_input_buffer_ver = struct_version(1);
@@ -46,15 +47,26 @@ pub const h264_profile_constrained_high_guid = guid(0xaec1bd87, 0xe85b, 0x48f2, 
 pub const hevc_profile_main_guid = guid(0xb514c39a, 0xb55b, 0x40fa, .{ 0x87, 0x8f, 0xf1, 0x25, 0x3b, 0x4d, 0xfd, 0xec });
 pub const hevc_profile_main10_guid = guid(0xfa4d2b6c, 0x3a5b, 0x411a, .{ 0x80, 0x18, 0x0a, 0x3f, 0x5e, 0x3c, 0x9b, 0xe5 });
 pub const hevc_profile_frext_guid = guid(0x51ec32b5, 0x1b4c, 0x453c, .{ 0x9c, 0xbd, 0xb6, 0x16, 0xbd, 0x62, 0x13, 0x41 });
-pub const preset_default_guid = guid(0xb2dfb705, 0x4ebd, 0x4c49, .{ 0x9b, 0x5f, 0x24, 0xa7, 0x77, 0xd3, 0xe5, 0x87 });
-pub const preset_hp_guid = guid(0x60e4c59f, 0xe846, 0x4484, .{ 0xa5, 0x6d, 0xcd, 0x45, 0xbe, 0x9f, 0xdd, 0xf6 });
-pub const preset_hq_guid = guid(0x34dba71d, 0xa77b, 0x4b8f, .{ 0x9c, 0x3e, 0xb6, 0xd5, 0xda, 0x24, 0xc0, 0x12 });
-pub const preset_bd_guid = guid(0x82e3e450, 0xbdbb, 0x4e40, .{ 0x98, 0x9c, 0x82, 0xa9, 0xd, 0xf9, 0xef, 0x32 });
-pub const preset_low_latency_default_guid = guid(0x49df21c5, 0x6dfa, 0x4feb, .{ 0x97, 0x87, 0x6a, 0xcc, 0x9e, 0xff, 0xb7, 0x26 });
-pub const preset_low_latency_hq_guid = guid(0xc5f733b9, 0xea97, 0x4cf9, .{ 0xbe, 0xc2, 0xbf, 0x78, 0xa7, 0x4f, 0xd1, 0x5 });
-pub const preset_low_latency_hp_guid = guid(0x67082a44, 0x4bad, 0x48fa, .{ 0x98, 0xea, 0x93, 0x5, 0x6d, 0x15, 0xa, 0x58 });
-pub const preset_lossless_default_guid = guid(0xd5bfb716, 0xc604, 0x44e7, .{ 0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac });
-pub const preset_lossless_hp_guid = guid(0x149998e7, 0x2364, 0x411d, .{ 0x82, 0xef, 0x17, 0x98, 0x88, 0x9, 0x34, 0x9 });
+
+// The old presets were deprecated starting SDK version 10.0. We remove them
+// entirely since using them is not supported on modern driver versions.
+// pub const preset_default_guid = guid(0xb2dfb705, 0x4ebd, 0x4c49, .{ 0x9b, 0x5f, 0x24, 0xa7, 0x77, 0xd3, 0xe5, 0x87 });
+// pub const preset_hp_guid = guid(0x60e4c59f, 0xe846, 0x4484, .{ 0xa5, 0x6d, 0xcd, 0x45, 0xbe, 0x9f, 0xdd, 0xf6 });
+// pub const preset_hq_guid = guid(0x34dba71d, 0xa77b, 0x4b8f, .{ 0x9c, 0x3e, 0xb6, 0xd5, 0xda, 0x24, 0xc0, 0x12 });
+// pub const preset_bd_guid = guid(0x82e3e450, 0xbdbb, 0x4e40, .{ 0x98, 0x9c, 0x82, 0xa9, 0xd, 0xf9, 0xef, 0x32 });
+// pub const preset_low_latency_default_guid = guid(0x49df21c5, 0x6dfa, 0x4feb, .{ 0x97, 0x87, 0x6a, 0xcc, 0x9e, 0xff, 0xb7, 0x26 });
+// pub const preset_low_latency_hq_guid = guid(0xc5f733b9, 0xea97, 0x4cf9, .{ 0xbe, 0xc2, 0xbf, 0x78, 0xa7, 0x4f, 0xd1, 0x5 });
+// pub const preset_low_latency_hp_guid = guid(0x67082a44, 0x4bad, 0x48fa, .{ 0x98, 0xea, 0x93, 0x5, 0x6d, 0x15, 0xa, 0x58 });
+// pub const preset_lossless_default_guid = guid(0xd5bfb716, 0xc604, 0x44e7, .{ 0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac });
+// pub const preset_lossless_hp_guid = guid(0x149998e7, 0x2364, 0x411d, .{ 0x82, 0xef, 0x17, 0x98, 0x88, 0x9, 0x34, 0x9 });
+
+pub const preset_p1 = guid(0xfc0a8d3e, 0x45f8, 0x4cf8, .{ 0x80, 0xc7, 0x29, 0x88, 0x71, 0x59, 0x0e, 0xbf });
+pub const preset_p2 = guid(0xf581cfb8, 0x88d6, 0x4381, .{ 0x93, 0xf0, 0xdf, 0x13, 0xf9, 0xc2, 0x7d, 0xab });
+pub const preset_p3 = guid(0x36850110, 0x3a07, 0x441f, .{ 0x94, 0xd5, 0x36, 0x70, 0x63, 0x1f, 0x91, 0xf6 });
+pub const preset_p4 = guid(0x90a7b826, 0xdf06, 0x4862, .{ 0xb9, 0xd2, 0xcd, 0x6d, 0x73, 0xa0, 0x86, 0x81 });
+pub const preset_p5 = guid(0x21c6e6b4, 0x297a, 0x4cba, .{ 0x99, 0x8f, 0xb6, 0xcb, 0xde, 0x72, 0xad, 0xe3 });
+pub const preset_p6 = guid(0x8e75c279, 0x6299, 0x4ab6, .{ 0x83, 0x02, 0x0b, 0x21, 0x5a, 0x33, 0x5c, 0xf5 });
+pub const preset_p7 = guid(0x84848c12, 0x6f71, 0x4c13, .{ 0x93, 0x1b, 0x53, 0xe2, 0x83, 0xf5, 0x79, 0x74 });
 
 pub const infinite_goplength: u32 = 0xffffffff;
 
@@ -134,6 +146,7 @@ pub const InputResourceType = enum(c_uint) {
 
 pub const Level = enum(c_uint) {
     autoselect = 0,
+
     h264_1 = 10,
     h264_1b = 9,
     h264_11 = 11,
@@ -151,6 +164,10 @@ pub const Level = enum(c_uint) {
     h264_5 = 50,
     h264_51 = 51,
     h264_52 = 52,
+    h264_60 = 60,
+    h264_61 = 61,
+    h264_62 = 62,
+
     hevc_1 = 30,
     hevc_2 = 60,
     hevc_21 = 63,
@@ -168,6 +185,13 @@ pub const Level = enum(c_uint) {
     hevc_high = 1,
 };
 
+pub const MemoryHeap = enum(c_uint) {
+    autoselect = 0,
+    vid = 1,
+    sysmem_cached = 2,
+    sysmem_uncached = 3,
+};
+
 pub const MVPrecision = enum(c_uint) {
     default = 0,
     full_pel = 1,
@@ -175,11 +199,10 @@ pub const MVPrecision = enum(c_uint) {
     quarter_pel = 3,
 };
 
-pub const MemoryHeap = enum(c_uint) {
-    autoselect = 0,
-    vid = 1,
-    sysmem_cached = 2,
-    sysmem_uncached = 3,
+pub const MultiPass = enum(c_uint) {
+    disabled = 0,
+    two_pass_quarter_resolution = 1,
+    two_pass_full_resolution = 2,
 };
 
 pub const NumRefFrames = enum(c_uint) {
@@ -203,9 +226,6 @@ pub const ParamsRcMode = enum(c_uint) {
     constqp = 0,
     vbr = 1,
     cbr = 2,
-    cbr_lowdelay_hq = 8,
-    cbr_hq = 16,
-    vbr_hq = 32,
 };
 
 pub const PicFlags = enum(c_uint) {
@@ -278,9 +298,18 @@ pub const StereoPackingMode = enum(c_uint) {
     frameseq = 6,
 };
 
+pub const TuningInfo = enum(c_uint) {
+    undefined = 0,
+    high_quality = 1,
+    low_latency = 2,
+    ultra_low_latency = 3,
+    lossless = 4,
+};
+
 pub const InputPtr = ?*opaque {};
 pub const OutputPtr = ?*opaque {};
 pub const RegisteredPtr = ?*opaque {};
+pub const CustreamPtr = ?*opaque {};
 
 pub const CodecConfig = extern union {
     h264Config: ConfigH264,
@@ -312,7 +341,7 @@ pub const Config = extern struct {
 
 pub const ConfigH264 = extern struct {
     bitfields: packed struct {
-        enableTemporalSVC: bool,
+        _reserved1: bool,
         enableStereoMVC: bool,
         hierarchicalPFrames: bool,
         hierarchicalBFrames: bool,
@@ -329,7 +358,8 @@ pub const ConfigH264 = extern struct {
         enableLTR: bool,
         qpPrimeYZeroTransformBypassFlag: bool,
         useConstrainedIntraPred: bool,
-        _reservedBitFields: u15,
+        enableFillerDataInsertion: bool,
+        _reserved2: u14,
     },
     level: u32,
     idrPeriod: u32,
@@ -354,7 +384,9 @@ pub const ConfigH264 = extern struct {
     chromaFormatIDC: u32,
     maxTemporalLayers: u32,
     useBFramesAsRef: BFrameRefMode,
-    _reserved1: [269]u32,
+    numRefL0: NumRefFrames,
+    numRefL1: NumRefFrames,
+    _reserved1: [267]u32,
     _reserved2: [64]?*anyopaque,
 };
 
@@ -415,7 +447,9 @@ pub const ConfigHEVC = extern struct {
         enableIntraRefresh: bool,
         chromaFormatIDC: u2,
         pixelBitDepthMinus8: u3,
-        _reserved: u18,
+        enableFillerDataInsetion: bool,
+        enableConstrainedEncoding: bool,
+        _reserved: u16,
     },
     idrPeriod: u32,
     intraRefreshPeriod: u32,
@@ -431,7 +465,9 @@ pub const ConfigHEVC = extern struct {
     hevcVUIParameters: ConfigHEVCVuiParameters,
     ltrTrustMode: u32,
     useBFramesAsRef: BFrameRefMode,
-    _reserved1: [216]u32,
+    numRefL0: NumRefFrames,
+    numRefL1: NumRefFrames,
+    _reserved1: [214]u32,
     _reserved2: [64]?*anyopaque,
 };
 
@@ -499,7 +535,8 @@ pub const InitializeParams = extern struct {
     maxEncodeWidth: u32,
     maxEncodeHeight: u32,
     maxMEHintCountsPerBlock: [2]ExternalMeHintCountsPerBlocktype,
-    _reserved: [289]u32,
+    tuningInfo: TuningInfo,
+    _reserved: [288]u32,
     _reserved2: [64]?*anyopaque,
 };
 
@@ -607,8 +644,23 @@ pub const PicParamsH264 = extern struct {
     ltrUsageMode: u32,
     forceIntraSliceCount: u32,
     forceIntraSliceIdx: [*c]u32,
-    _reserved: [242]u32,
+    h264ExtPicParams: PicParamsH264Ext,
+    _reserved: [210]u32,
     _reserved2: [61]?*anyopaque,
+};
+
+pub const PicParamsMVC = extern struct {
+    version: u32,
+    viewID: u32,
+    temporalID: u32,
+    priorityID: u32,
+    _reserved1: [12]u3,
+    _reserved2: [8]?*anyopaque,
+};
+
+pub const PicParamsH264Ext = extern union {
+    mvcPicParams: PicParamsMVC,
+    _reserved1: [32]u32,
 };
 
 pub const PicParamsHEVC = extern struct {
@@ -638,10 +690,14 @@ pub const PresetConfig = extern struct {
     _reserved2: [64]?*anyopaque,
 };
 
+// XXX: In the original headers the struct values are unsigned integers. As
+// explained in the docs, this is for legacy reasons and the user must treat
+// them as if they were i32. We took the liberty to declare them i32 here as a
+// convenience.
 pub const Qp = extern struct {
-    qpInterP: u32,
-    qpInterB: u32,
-    qpIntra: u32,
+    qpInterP: i32,
+    qpInterB: i32,
+    qpIntra: i32,
 };
 
 pub const RcParams = extern struct {
@@ -661,9 +717,11 @@ pub const RcParams = extern struct {
     targetQuality: u8,
     targetQualityLSB: u8,
     lookaheadDepth: u16,
-    _reserved1: u32,
+    lowDelayKeyFrameScale: u8,
+    _reserved1: [3]u8,
     qpMapMode: QPMapMode,
-    _reserved: [7]u32,
+    multiPass: MultiPass,
+    _reserved: [6]u32,
 };
 
 pub const RegisterResource = extern struct {
@@ -739,6 +797,9 @@ pub const ApiFunctionList = extern struct {
     __nvEncDestroyMVBuffer: ?*anyopaque, // not included in bindings
     __nvEncRunMotionEstimationOnly: ?*anyopaque, // not included in bindings
     nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8,
+    nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) Status,
+    nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) Status,
+    __nvEncGetSequenceParamEx: ?*const fn (?*anyopaque, ?*InitializeParams, ?*SequenceParamPayload) callconv(.C) Status, // not included in bindings
     __nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
     _reserved2: [279]?*anyopaque,
 };
@@ -762,6 +823,8 @@ pub var nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*a
 pub var nvEncRegisterResource: ?*const fn (?*anyopaque, ?*RegisterResource) callconv(.C) Status = null;
 pub var nvEncUnregisterResource: ?*const fn (?*anyopaque, RegisteredPtr) callconv(.C) Status = null;
 pub var nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8 = null;
+pub var nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) Status = null;
+pub var nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) Status = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
@@ -810,4 +873,6 @@ pub fn load() !void {
     nvEncRegisterResource = function_list.nvEncRegisterResource;
     nvEncUnregisterResource = function_list.nvEncUnregisterResource;
     nvEncGetLastErrorString = function_list.nvEncGetLastErrorString;
+    nvEncSetIOCudaStreams = function_list.nvEncSetIOCudaStreams;
+    nvEncGetEncodePresetConfigEx = function_list.nvEncGetEncodePresetConfigEx;
 }

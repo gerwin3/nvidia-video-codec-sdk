@@ -22,8 +22,8 @@ A wrapper around the NVIDIA Video Codec (NVENC and NVDEC) for Zig.
 
 This library requires at least:
 
-* CUDA version 10.0 or higher.
-* NVIDIA driver 418.81 (Windows), 418.30 (Linux) or higher.
+* CUDA version 10.1 or higher.
+* NVIDIA driver 445.87 (Windows), 450.51 (Linux) or higher.
 
 Older versions may work but are not tested.
 
@@ -76,9 +76,9 @@ ffmpeg.
 
 ### Video Codec SDK Compatibility Matrix
 
-The Zig wrapper is based on the headers of version 9.0. Since all headers are
-compatible, this ensures compatibility with the corresponding SDK version, as
-well as CUDA and driver versions.
+The Zig wrapper is based on the headers of SDK version 10.0. Since all headers
+are compatible, this ensures compatibility with the corresponding SDK version,
+as well as CUDA and driver versions and above.
 
 For your convenience, find the full compatibility matrix below:
 
@@ -89,13 +89,12 @@ For your convenience, find the full compatibility matrix below:
 | 12.0                    | 522.25 / 520.56.06                     | 11.0                 |
 | 11.1                    | 471.41 / 470.57.02                     | 11.0                 |
 | 11.0                    | 456.71 / 455.27                        | 11.0                 |
-| 10.0                    | 445.87 / 450.51                        | 10.1                 |
+| **10.0**                | **445.87 / 450.51**                    | **10.1**             |
 | 9.1                     | 436.15 / 435.21                        | 10.0                 |
-| **9.0**                 | **418.81 / 418.30**                    | **10.0**             |
+| 9.0                     | 418.81 / 418.30                        | 10.0                 |
 | 8.2                     | 397.93 / 396.24                        | 8.0                  |
 | 8.1                     | 390.77 / 390.25                        | 8.0                  |
 | 8.0                     | 378.66 / 378.13                        | 7.5                  |
-
 
 ## License
 
