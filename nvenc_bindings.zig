@@ -12,12 +12,12 @@ pub const create_input_buffer_ver = struct_version(1);
 pub const create_bitstream_buffer_ver = struct_version(1);
 pub const create_mv_buffer_ver = struct_version(1);
 pub const rc_params_ver = struct_version(1);
+pub const pic_params_mvc_ver = struct_version(1);
 pub const config_ver = struct_version(7) | (1 << 31);
 pub const initialize_params_ver = struct_version(5) | (1 << 31);
 pub const reconfigure_params_ver = struct_version(1) | (1 << 31);
 pub const preset_config_ver = struct_version(4) | (1 << 31);
 pub const pic_params_ver = struct_version(4) | (1 << 31);
-pub const pic_params_mvc_ver = struct_version(1);
 pub const meonly_params_ver = struct_version(3);
 pub const lock_bitstream_ver = struct_version(1);
 pub const lock_input_buffer_ver = struct_version(1);
@@ -769,7 +769,7 @@ pub const ApiFunctionList = extern struct {
     __nvEncGetEncodeCaps: ?*anyopaque, // not included in bindings
     __nvEncGetEncodePresetCount: ?*anyopaque, // not included in bindings
     __nvEncGetEncodePresetGUIDs: ?*anyopaque, // not included in bindings
-    nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) Status,
+    nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) callconv(.C) Status,
     nvEncInitializeEncoder: ?*const fn (?*anyopaque, ?*InitializeParams) callconv(.C) Status,
     nvEncCreateInputBuffer: ?*const fn (?*anyopaque, ?*CreateInputBuffer) callconv(.C) Status,
     nvEncDestroyInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status,
@@ -797,14 +797,14 @@ pub const ApiFunctionList = extern struct {
     __nvEncDestroyMVBuffer: ?*anyopaque, // not included in bindings
     __nvEncRunMotionEstimationOnly: ?*anyopaque, // not included in bindings
     nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8,
-    nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) Status,
-    nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) Status,
+    nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) callconv(.C) Status,
+    nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) callconv(.C) Status,
     __nvEncGetSequenceParamEx: ?*const fn (?*anyopaque, ?*InitializeParams, ?*SequenceParamPayload) callconv(.C) Status, // not included in bindings
     __nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
     _reserved2: [279]?*anyopaque,
 };
 
-pub var nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) Status = null;
+pub var nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) callconv(.C) Status = null;
 pub var nvEncInitializeEncoder: ?*const fn (?*anyopaque, ?*InitializeParams) callconv(.C) Status = null;
 pub var nvEncCreateInputBuffer: ?*const fn (?*anyopaque, ?*CreateInputBuffer) callconv(.C) Status = null;
 pub var nvEncDestroyInputBuffer: ?*const fn (?*anyopaque, InputPtr) callconv(.C) Status = null;
@@ -823,8 +823,8 @@ pub var nvEncOpenEncodeSessionEx: ?*const fn (?*OpenEncodeSessionExParams, ?*?*a
 pub var nvEncRegisterResource: ?*const fn (?*anyopaque, ?*RegisterResource) callconv(.C) Status = null;
 pub var nvEncUnregisterResource: ?*const fn (?*anyopaque, RegisteredPtr) callconv(.C) Status = null;
 pub var nvEncGetLastErrorString: ?*const fn (?*anyopaque) callconv(.C) [*c]const u8 = null;
-pub var nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) Status = null;
-pub var nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) Status = null;
+pub var nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) callconv(.C) Status = null;
+pub var nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) callconv(.C) Status = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {

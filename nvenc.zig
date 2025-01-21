@@ -78,67 +78,63 @@ pub const HEVCProfile = enum {
 };
 
 /// Codec to use. Choose from H.264 and HEVC (H.265).
-/// Note that for each codec you can optionally select a profile. The profile will be forcefully
-/// applied to the encoder config. It is recommended to not set it and select a preset. The optimal
-/// profile for the selected preset will be used.
+/// Note that for each codec you can optionally select a profile and format.
+/// The profile will be forcefully applied to the encoder config. It is
+/// recommended to not set them, in which case the preset default will be used.
 pub const Codec = union(enum) {
     h264: struct {
-        profile: H264Profile = .baseline,
-        format: H264Format = .yuv420,
+        profile: ?H264Profile = null,
+        format: ?H264Format = null,
     },
     hevc: struct {
-        profile: HEVCProfile = .main,
-        format: HEVCFormat = .yuv420,
+        profile: ?HEVCProfile = null,
+        format: ?HEVCFormat = null,
     },
 };
 
 pub const Preset = enum {
-    default,
-    hp,
-    hq,
-    bd,
-    low_latency_default,
-    low_latency_hq,
-    low_latency_hp,
-    lossless_default,
-    lossless_hp,
+    p1,
+    p2,
+    p3,
+    p4,
+    p5,
+    p6,
+    p7,
+};
+
+pub const Tuning = enum {
+    high_quality,
+    low_latency,
+    ultra_low_latency,
+    lossless,
 };
 
 pub const RateControl = union(enum) {
     const_qp: struct {
-        inter_p: u32,
-        inter_b: u32,
-        intra: u32,
+        inter_p: i32,
+        inter_b: i32,
+        intra: i32,
     },
     vbr: struct {
-        average_bitrate: u32,
-        max_bitrate: u32,
-    },
-    vbr_hq: struct {
         average_bitrate: u32,
         max_bitrate: u32,
     },
     cbr: struct {
         bitrate: u32,
     },
-    cbr_hq: struct {
-        bitrate: u32,
-    },
-    cbr_lowdelay_hq: struct {
-        bitrate: u32,
-    },
 };
 
 pub const EncoderOptions = struct {
     codec: Codec,
-    preset: Preset = .default,
+    preset: Preset = .p1,
+    tuning: Tuning = .high_quality,
     resolution: struct {
         width: u32,
         height: u32,
     },
     frame_rate: struct { num: u32, den: u32 } = .{ .num = 30, .den = 1 },
     idr_interval: ?u32 = null,
-    rate_control: RateControl = .{ .vbr = .{
+    rate_control: ?RateControl = .{ .vbr = .{
         .average_bitrate = 5_000_000,
         .max_bitrate = 10_000_000,
     } },
@@ -183,25 +179,103 @@ pub const Encoder = struct {
         };
 
         const preset_guid = switch (options.preset) {
-            .default => nvenc_bindings.preset_default_guid,
-            .hp => nvenc_bindings.preset_hp_guid,
-            .hq => nvenc_bindings.preset_hq_guid,
-            .bd => nvenc_bindings.preset_bd_guid,
-            .low_latency_default => nvenc_bindings.preset_low_latency_default_guid,
-            .low_latency_hq => nvenc_bindings.preset_low_latency_hq_guid,
-            .low_latency_hp => nvenc_bindings.preset_low_latency_hp_guid,
-            .lossless_default => nvenc_bindings.preset_lossless_default_guid,
-            .lossless_hp => nvenc_bindings.preset_lossless_hp_guid,
+            .p1 => nvenc_bindings.preset_p1,
+            .p2 => nvenc_bindings.preset_p2,
+            .p3 => nvenc_bindings.preset_p3,
+            .p4 => nvenc_bindings.preset_p4,
+            .p5 => nvenc_bindings.preset_p5,
+            .p6 => nvenc_bindings.preset_p6,
+            .p7 => nvenc_bindings.preset_p7,
+        };
+
+        const tuning_info = switch (options.tuning) {
+            .high_quality => nvenc_bindings.TuningInfo.high_quality,
+            .low_latency => nvenc_bindings.TuningInfo.low_latency,
+            .ultra_low_latency => nvenc_bindings.TuningInfo.ultra_low_latency,
+            .lossless => nvenc_bindings.TuningInfo.lossless,
         };
 
         var config = std.mem.zeroes(nvenc_bindings.Config);
         config.version = nvenc_bindings.config_ver;
+
+        var preset_config = std.mem.zeroes(nvenc_bindings.PresetConfig);
+        preset_config.version = nvenc_bindings.preset_config_ver;
+        preset_config.presetCfg.version = nvenc_bindings.config_ver;
+        try status(nvenc_bindings.nvEncGetEncodePresetConfigEx.?(encoder, codec_guid, preset_guid, tuning_info, &preset_config));
+        config = preset_config.presetCfg;
+
+        if (options.idr_interval) |idr_interval| config.gopLength = idr_interval;
+
+        switch (options.codec) {
+            .h264 => |h264_options| {
+                if (h264_options.profile) |profile| {
+                    config.profileGUID = switch (profile) {
+                        .baseline => nvenc_bindings.h264_profile_baseline_guid,
+                        .main => nvenc_bindings.h264_profile_main_guid,
+                        .high => nvenc_bindings.h264_profile_high_guid,
+                        .high_444 => nvenc_bindings.h264_profile_high_444_guid,
+                        .stereo => nvenc_bindings.h264_profile_stereo_guid,
+                        .svc_temporal_scalabilty => nvenc_bindings.h264_profile_svc_temporal_scalabilty,
+                        .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
+                        .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
+                    };
+                }
+                if (h264_options.format) |format| {
+                    config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (format) {
+                        .yuv420 => 1,
+                        .yuv444 => 3,
+                    };
+                }
+            },
+            .hevc => |hevc_options| {
+                if (hevc_options.profile) |profile| {
+                    config.profileGUID = switch (profile) {
+                        .main => nvenc_bindings.hevc_profile_main_guid,
+                        .main10 => nvenc_bindings.hevc_profile_main10_guid,
+                        .frext => nvenc_bindings.hevc_profile_frext_guid,
+                    };
+                }
+                if (hevc_options.format) |format| {
+                    config.encodeCodecConfig.hevcConfig.bitfields.chromaFormatIDC = switch (format) {
+                        .yuv420, .yuv420_10bit => 1,
+                        .yuv444, .yuv444_10bit => 3,
+                    };
+                    config.encodeCodecConfig.hevcConfig.bitfields.pixelBitDepthMinus8 = switch (format) {
+                        .yuv420_10bit, .yuv444_10bit => 2,
+                        .yuv420, .yuv444 => 0,
+                    };
+                }
+            },
+        }
+
+        if (options.rate_control) |rate_control| {
+            switch (rate_control) {
+                .const_qp => |rc_opts| {
+                    config.rcParams.rateControlMode = .constqp;
+                    config.rcParams.constQP = .{
+                        .qpInterP = rc_opts.inter_p,
+                        .qpInterB = rc_opts.inter_b,
+                        .qpIntra = rc_opts.intra,
+                    };
+                },
+                .vbr => |rc_opts| {
+                    config.rcParams.rateControlMode = .vbr;
+                    config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                    config.rcParams.maxBitRate = rc_opts.max_bitrate;
+                },
+                .cbr => |rc_opts| {
+                    config.rcParams.rateControlMode = .cbr;
+                    config.rcParams.averageBitRate = rc_opts.bitrate;
+                },
+            }
+        }
 
         var initialize_params = std.mem.zeroes(nvenc_bindings.InitializeParams);
         initialize_params.version = nvenc_bindings.initialize_params_ver;
         initialize_params.encodeConfig = &config;
         initialize_params.encodeGUID = codec_guid;
         initialize_params.presetGUID = preset_guid;
+        initialize_params.tuningInfo = tuning_info;
         initialize_params.encodeWidth = options.resolution.width;
         initialize_params.encodeHeight = options.resolution.height;
         initialize_params.darWidth = options.resolution.width;
@@ -212,82 +286,6 @@ pub const Encoder = struct {
         initialize_params.maxEncodeWidth = options.resolution.width;
         initialize_params.maxEncodeHeight = options.resolution.height;
         initialize_params.enableEncodeAsync = 0;
-
-        var preset_config = std.mem.zeroes(nvenc_bindings.PresetConfig);
-        preset_config.version = nvenc_bindings.preset_config_ver;
-        preset_config.presetCfg.version = nvenc_bindings.config_ver;
-        // TODO: update
-        try status(nvenc_bindings.nvEncGetEncodePresetConfigEx.?(encoder, codec_guid, preset_guid, &preset_config));
-
-        config.frameIntervalP = 1; // IPP mode
-        config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
-
-        switch (options.codec) {
-            .h264 => |h264_options| {
-                config.profileGUID = switch (h264_options.profile) {
-                    .baseline => nvenc_bindings.h264_profile_baseline_guid,
-                    .main => nvenc_bindings.h264_profile_main_guid,
-                    .high => nvenc_bindings.h264_profile_high_guid,
-                    .high_444 => nvenc_bindings.h264_profile_high_444_guid,
-                    .stereo => nvenc_bindings.h264_profile_stereo_guid,
-                    .svc_temporal_scalabilty => nvenc_bindings.h264_profile_svc_temporal_scalabilty,
-                    .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
-                    .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
-                };
-                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (h264_options.format) {
-                    .yuv420 => 1,
-                    .yuv444 => 3,
-                };
-            },
-            .hevc => |hevc_options| {
-                config.profileGUID = switch (hevc_options.profile) {
-                    .main => nvenc_bindings.hevc_profile_main_guid,
-                    .main10 => nvenc_bindings.hevc_profile_main10_guid,
-                    .frext => nvenc_bindings.hevc_profile_frext_guid,
-                };
-                config.encodeCodecConfig.hevcConfig.bitfields.chromaFormatIDC = switch (hevc_options.format) {
-                    .yuv420, .yuv420_10bit => 1,
-                    .yuv444, .yuv444_10bit => 3,
-                };
-                config.encodeCodecConfig.hevcConfig.bitfields.pixelBitDepthMinus8 = switch (hevc_options.format) {
-                    .yuv420_10bit, .yuv444_10bit => 2,
-                    .yuv420, .yuv444 => 0,
-                };
-            },
-        }
-
-        switch (options.rate_control) {
-            .const_qp => |rc_opts| {
-                config.rcParams.rateControlMode = .constqp;
-                config.rcParams.constQP = .{
-                    .qpInterP = rc_opts.inter_p,
-                    .qpInterB = rc_opts.inter_b,
-                    .qpIntra = rc_opts.intra,
-                };
-            },
-            .vbr => |rc_opts| {
-                config.rcParams.rateControlMode = .vbr;
-                config.rcParams.averageBitRate = rc_opts.average_bitrate;
-                config.rcParams.maxBitRate = rc_opts.max_bitrate;
-            },
-            .vbr_hq => |rc_opts| {
-                config.rcParams.rateControlMode = .vbr_hq;
-                config.rcParams.averageBitRate = rc_opts.average_bitrate;
-                config.rcParams.maxBitRate = rc_opts.max_bitrate;
-            },
-            .cbr => |rc_opts| {
-                config.rcParams.rateControlMode = .cbr;
-                config.rcParams.averageBitRate = rc_opts.bitrate;
-            },
-            .cbr_hq => |rc_opts| {
-                config.rcParams.rateControlMode = .cbr_hq;
-                config.rcParams.averageBitRate = rc_opts.bitrate;
-            },
-            .cbr_lowdelay_hq => |rc_opts| {
-                config.rcParams.rateControlMode = .cbr_lowdelay_hq;
-                config.rcParams.averageBitRate = rc_opts.bitrate;
-            },
-        }
 
         try status(nvenc_bindings.nvEncInitializeEncoder.?(encoder, &initialize_params));
         errdefer status(nvenc_bindings.nvEncDestroyEncoder.?(encoder)) catch unreachable;
@@ -302,6 +300,7 @@ pub const Encoder = struct {
         sequence_param_payload.outSPSPPSPayloadSize = &sequence_param_payload_size;
         status(nvenc_bindings.nvEncGetSequenceParams.?(encoder, &sequence_param_payload)) catch unreachable;
         sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
+        errdefer allocator.free(sequence_param_payload_buf);
 
         const cache_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
 
@@ -338,6 +337,8 @@ pub const Encoder = struct {
     }
 
     pub fn deinit(self: *Encoder) void {
+        self.allocator.free(self.parameter_sets);
+
         // User must flush encoder before deinit. If the cache has items still
         // it means the user did not flush properly.
         std.debug.assert(self.io_cache.readableLength() == 0);
