@@ -8,24 +8,24 @@ const cuda_log = std.log.scoped(.cuda_log);
 pub const load = cuda_bindings.load;
 
 /// Initialize CUDA.
-pub fn init() !void {
+pub fn init() Error!void {
     try result(cuda_bindings.cuInit.?(0));
 }
 
 pub const Context = struct {
     inner: cuda_bindings.Context,
 
-    pub fn init(device: Device) !Context {
+    pub fn init(device: Device) Error!Context {
         var context: cuda_bindings.Context = null;
         try result(cuda_bindings.cuCtxCreate_v2.?(&context, 0, device));
         return .{ .inner = context };
     }
 
-    pub fn push(self: Context) !void {
+    pub fn push(self: Context) Error!void {
         try result(cuda_bindings.cuCtxPushCurrent_v2.?(self.inner));
     }
 
-    pub fn pop(self: Context) !void {
+    pub fn pop(self: Context) Error!void {
         var context: cuda_bindings.Context = null;
         try result(cuda_bindings.cuCtxPopCurrent_v2.?(&context));
         std.debug.assert(context == self.inner);
@@ -42,7 +42,24 @@ pub const Device = cuda_bindings.Device;
 
 pub const DevicePtr = cuda_bindings.DevicePtr;
 
-pub fn copy2D(
+pub inline fn allocPitch(width: usize, height: usize, elem_size: usize) Error!struct { ptr: DevicePtr, pitch: usize } {
+    var device_ptr: DevicePtr = null;
+    var pitch: usize = undefined;
+    try result(cuda_bindings.cuMemAllocPitch.?(
+        &device_ptr,
+        &pitch,
+        width,
+        height,
+        @intCast(elem_size),
+    ));
+    return .{ .ptr = device_ptr, .pitch = pitch };
+}
+
+pub inline fn free(ptr: DevicePtr) void {
+    result(cuda_bindings.cuMemFree.?(ptr)) catch unreachable;
+}
+
+pub inline fn copy2D(
     copy: union(enum) {
         host_to_device: struct {
             src: []const u8,
@@ -65,7 +82,7 @@ pub fn copy2D(
             height: usize,
         },
     },
-) !void {
+) Error!void {
     std.debug.assert(args.dims.width <= args.src_pitch and args.dims.width <= args.dst_pitch);
     switch (copy) {
         .host_to_device => |copy_args| std.debug.assert(copy_args.src.len == (args.src_pitch * args.dims.height)),

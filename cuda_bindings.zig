@@ -132,12 +132,14 @@ pub const Memcpy2D = extern struct {
     Height: usize,
 };
 
-pub var cuInit: ?*const fn (Flags: c_uint) Result = null;
-pub var cuCtxCreate_v2: ?*const fn (pctx: ?*Context, flags: c_uint, dev: Device) Result = null;
-pub var cuCtxDestroy_v2: ?*const fn (ctx: Context) Result = null;
-pub var cuCtxPushCurrent_v2: ?*const fn (ctx: Context) Result = null;
-pub var cuCtxPopCurrent_v2: ?*const fn (pctx: ?*Context) Result = null;
-pub var cuMemcpy2D_v2: ?*const fn (pCopy: ?*const Memcpy2D) Result = null;
+pub var cuInit: ?*const fn (Flags: c_uint) callconv(.C) Result = null;
+pub var cuCtxCreate_v2: ?*const fn (pctx: ?*Context, flags: c_uint, dev: Device) callconv(.C) Result = null;
+pub var cuCtxDestroy_v2: ?*const fn (ctx: Context) callconv(.C) Result = null;
+pub var cuCtxPushCurrent_v2: ?*const fn (ctx: Context) callconv(.C) Result = null;
+pub var cuCtxPopCurrent_v2: ?*const fn (pctx: ?*Context) callconv(.C) Result = null;
+pub var cuMemAllocPitch: ?*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result = null;
+pub var cuMemFree: ?*const fn (dptr: DevicePtr) callconv(.C) Result = null;
+pub var cuMemcpy2D_v2: ?*const fn (pCopy: ?*const Memcpy2D) callconv(.C) Result = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
@@ -150,10 +152,12 @@ pub fn load() !void {
         else => @panic("unsupported operating system"),
     };
 
-    cuInit = cuda.lookup(*const fn (Flags: c_uint) Result, "cuInit") orelse @panic("cuda library invalid");
-    cuCtxCreate_v2 = cuda.lookup(*const fn (pctx: [*c]Context, flags: c_uint, dev: Device) Result, "cuCtxCreate_v2") orelse @panic("cuda library invalid");
-    cuCtxDestroy_v2 = cuda.lookup(*const fn (ctx: Context) Result, "cuCtxDestroy_v2") orelse @panic("cuda library invalid");
-    cuCtxPushCurrent_v2 = cuda.lookup(*const fn (ctx: Context) Result, "cuCtxPushCurrent_v2") orelse @panic("cuda library invalid");
-    cuCtxPopCurrent_v2 = cuda.lookup(*const fn (pctx: [*c]Context) Result, "cuCtxPopCurrent_v2") orelse @panic("cuda library invalid");
-    cuMemcpy2D_v2 = cuda.lookup(*const fn (pCopy: ?*const Memcpy2D) Result, "cuMemcpy2D_v2") orelse @panic("cuda library invalid");
+    cuInit = cuda.lookup(*const fn (Flags: c_uint) callconv(.C) Result, "cuInit") orelse @panic("cuda library invalid");
+    cuCtxCreate_v2 = cuda.lookup(*const fn (pctx: [*c]Context, flags: c_uint, dev: Device) callconv(.C) Result, "cuCtxCreate_v2") orelse @panic("cuda library invalid");
+    cuCtxDestroy_v2 = cuda.lookup(*const fn (ctx: Context) callconv(.C) Result, "cuCtxDestroy_v2") orelse @panic("cuda library invalid");
+    cuCtxPushCurrent_v2 = cuda.lookup(*const fn (ctx: Context) callconv(.C) Result, "cuCtxPushCurrent_v2") orelse @panic("cuda library invalid");
+    cuCtxPopCurrent_v2 = cuda.lookup(*const fn (pctx: [*c]Context) callconv(.C) Result, "cuCtxPopCurrent_v2") orelse @panic("cuda library invalid");
+    cuMemAllocPitch = cuda.lookup(*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result, "cuMemAllocPitch") orelse @panic("cuda library invalid");
+    cuMemFree = cuda.lookup(*const fn (dptr: DevicePtr) callconv(.C) Result, "cuMemFree") orelse @panic("cuda library invalid");
+    cuMemcpy2D_v2 = cuda.lookup(*const fn (pCopy: ?*const Memcpy2D) callconv(.C) Result, "cuMemcpy2D_v2") orelse @panic("cuda library invalid");
 }
