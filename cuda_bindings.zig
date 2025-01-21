@@ -137,8 +137,8 @@ pub var cuCtxCreate_v2: ?*const fn (pctx: ?*Context, flags: c_uint, dev: Device)
 pub var cuCtxDestroy_v2: ?*const fn (ctx: Context) callconv(.C) Result = null;
 pub var cuCtxPushCurrent_v2: ?*const fn (ctx: Context) callconv(.C) Result = null;
 pub var cuCtxPopCurrent_v2: ?*const fn (pctx: ?*Context) callconv(.C) Result = null;
-pub var cuMemAllocPitch: ?*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result = null;
-pub var cuMemFree: ?*const fn (dptr: DevicePtr) callconv(.C) Result = null;
+pub var cuMemAllocPitch_v2: ?*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result = null;
+pub var cuMemFree_v2: ?*const fn (dptr: DevicePtr) callconv(.C) Result = null;
 pub var cuMemcpy2D_v2: ?*const fn (pCopy: ?*const Memcpy2D) callconv(.C) Result = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
@@ -157,7 +157,7 @@ pub fn load() !void {
     cuCtxDestroy_v2 = cuda.lookup(*const fn (ctx: Context) callconv(.C) Result, "cuCtxDestroy_v2") orelse @panic("cuda library invalid");
     cuCtxPushCurrent_v2 = cuda.lookup(*const fn (ctx: Context) callconv(.C) Result, "cuCtxPushCurrent_v2") orelse @panic("cuda library invalid");
     cuCtxPopCurrent_v2 = cuda.lookup(*const fn (pctx: [*c]Context) callconv(.C) Result, "cuCtxPopCurrent_v2") orelse @panic("cuda library invalid");
-    cuMemAllocPitch = cuda.lookup(*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result, "cuMemAllocPitch") orelse @panic("cuda library invalid");
-    cuMemFree = cuda.lookup(*const fn (dptr: DevicePtr) callconv(.C) Result, "cuMemFree") orelse @panic("cuda library invalid");
+    cuMemAllocPitch_v2 = cuda.lookup(*const fn (dptr: *DevicePtr, pPitch: *usize, WidthInBytes: usize, Height: usize, ElementSizeBytes: c_uint) callconv(.C) Result, "cuMemAllocPitch_v2") orelse @panic("cuda library invalid");
+    cuMemFree_v2 = cuda.lookup(*const fn (dptr: DevicePtr) callconv(.C) Result, "cuMemFree_v2") orelse @panic("cuda library invalid");
     cuMemcpy2D_v2 = cuda.lookup(*const fn (pCopy: ?*const Memcpy2D) callconv(.C) Result, "cuMemcpy2D_v2") orelse @panic("cuda library invalid");
 }

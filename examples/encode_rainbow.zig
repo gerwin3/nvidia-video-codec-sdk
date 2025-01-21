@@ -9,7 +9,10 @@ const rainbow_num_frames = 256;
 const width = 1920;
 const height = 1080;
 
-const num_planes = 3;
+const y_plane_width = width;
+const y_plane_height = height;
+const uv_plane_width = width;
+const uv_plane_height = height / 2;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -38,22 +41,26 @@ pub fn main() !void {
     );
     defer encoder.deinit();
 
-    std.debug.print("parameter sets: {any}", .{encoder.parameter_sets});
+    std.debug.print("parameter sets: {any}\n", .{encoder.parameter_sets});
 
-    var frame_buffer_host = try allocator.alloc(u8, num_planes * height * width);
-    defer allocator.free(frame_buffer_host);
-    const plane_size = height * width;
-    const y_plane = frame_buffer_host[0 * plane_size .. 1 * plane_size];
-    const u_plane = frame_buffer_host[1 * plane_size .. 2 * plane_size];
-    const v_plane = frame_buffer_host[2 * plane_size .. 3 * plane_size];
+    var frame_data_host = try allocator.alloc(u8, (y_plane_height + uv_plane_height) * width);
+    defer allocator.free(frame_data_host);
+    const y_plane = frame_data_host[0 .. y_plane_height * y_plane_width];
+    const uv_plane = frame_data_host[y_plane_height * y_plane_width ..];
 
-    const frame_buffer_device = try nvenc.cuda.allocPitch(width, num_planes * height, 1);
-    defer nvenc.cuda.free(frame_buffer_device.ptr);
+    try context.push();
+    const frame_data_device = try nvenc.cuda.allocPitch(width, (y_plane_height + uv_plane_height), .element_size_4);
+    defer {
+        context.push() catch unreachable;
+        nvenc.cuda.free(frame_data_device.ptr);
+        context.pop() catch unreachable;
+    }
+    try context.pop();
 
     const frame = nvenc.Frame{
-        .data = frame_buffer_device.ptr,
-        .format = .yuv444,
-        .pitch = @intCast(frame_buffer_device.pitch),
+        .data = frame_data_device.ptr,
+        .format = .nv12,
+        .pitch = @intCast(frame_data_device.pitch),
         .dims = .{
             .width = width,
             .height = height,
@@ -66,25 +73,28 @@ pub fn main() !void {
         // TODO: timestamp
 
         @memset(y_plane, r.y);
-        @memset(u_plane, r.u);
-        @memset(v_plane, r.v);
+        for (0.., uv_plane) |uv_plane_index, _| {
+            uv_plane[uv_plane_index] = if (uv_plane_index % 2 == 0) r.u else r.v;
+        }
 
+        try context.push();
         try nvenc.cuda.copy2D(
             .{
                 .host_to_device = .{
-                    .src = frame_buffer_host,
+                    .src = frame_data_host,
                     .dst = frame.data,
                 },
             },
             .{
                 .src_pitch = width,
-                .dst_pitch = frame.data,
+                .dst_pitch = frame.pitch,
                 .dims = .{
                     .width = width,
-                    .height = 3 * height,
+                    .height = (y_plane_height + uv_plane_height),
                 },
             },
         );
+        try context.pop();
 
         try encoder.encode(&frame, writer);
     }

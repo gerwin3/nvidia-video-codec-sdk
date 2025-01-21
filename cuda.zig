@@ -32,9 +32,7 @@ pub const Context = struct {
     }
 
     pub fn deinit(self: Context) void {
-        result(cuda_bindings.cuCtxDestroy_v2.?(self.inner)) catch |err| {
-            cuda_log.err("failed to destroy CUDA context (err = {})", .{err});
-        };
+        result(cuda_bindings.cuCtxDestroy_v2.?(self.inner)) catch unreachable;
     }
 };
 
@@ -42,21 +40,29 @@ pub const Device = cuda_bindings.Device;
 
 pub const DevicePtr = cuda_bindings.DevicePtr;
 
-pub inline fn allocPitch(width: usize, height: usize, elem_size: usize) Error!struct { ptr: DevicePtr, pitch: usize } {
+pub inline fn allocPitch(
+    width: usize,
+    height: usize,
+    comptime elem_size: enum { element_size_4, element_size_8, element_size_16 },
+) Error!struct { ptr: DevicePtr, pitch: usize } {
     var device_ptr: DevicePtr = undefined;
     var pitch: usize = undefined;
-    try result(cuda_bindings.cuMemAllocPitch.?(
+    try result(cuda_bindings.cuMemAllocPitch_v2.?(
         &device_ptr,
         &pitch,
         width,
         height,
-        @intCast(elem_size),
+        comptime switch (elem_size) {
+            .element_size_4 => 4,
+            .element_size_8 => 8,
+            .element_size_16 => 16,
+        },
     ));
     return .{ .ptr = device_ptr, .pitch = pitch };
 }
 
 pub inline fn free(ptr: DevicePtr) void {
-    result(cuda_bindings.cuMemFree.?(ptr)) catch unreachable;
+    result(cuda_bindings.cuMemFree_v2.?(ptr)) catch unreachable;
 }
 
 pub inline fn copy2D(

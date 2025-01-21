@@ -147,7 +147,6 @@ pub const Encoder = struct {
         output_bitstream: nvenc_bindings.OutputPtr = null,
     };
 
-    context: *cuda.Context,
     encoder: ?*anyopaque,
     parameter_sets: []u8,
 
@@ -327,7 +326,6 @@ pub const Encoder = struct {
         // TODO: perf: Use nvEncSetIOCudaStreams to assign CUDA streams.
 
         return Encoder{
-            .context = context,
             .encoder = encoder,
             .parameter_sets = sequence_param_payload_buf,
             .io_cache_items = io_cache_items,
@@ -436,6 +434,7 @@ pub const Encoder = struct {
             status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, read_item.input_registered_resource)) catch unreachable;
 
             var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
+            lock_bitstream.version = nvenc_bindings.lock_bitstream_ver;
             lock_bitstream.outputBitstream = read_item.output_bitstream;
             lock_bitstream.bitfields.doNotWait = false; // this is mandatory in sync mode
             status(nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream)) catch unreachable;
