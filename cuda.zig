@@ -43,7 +43,7 @@ pub const Device = cuda_bindings.Device;
 pub const DevicePtr = cuda_bindings.DevicePtr;
 
 pub inline fn allocPitch(width: usize, height: usize, elem_size: usize) Error!struct { ptr: DevicePtr, pitch: usize } {
-    var device_ptr: DevicePtr = null;
+    var device_ptr: DevicePtr = undefined;
     var pitch: usize = undefined;
     try result(cuda_bindings.cuMemAllocPitch.?(
         &device_ptr,

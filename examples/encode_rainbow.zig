@@ -6,6 +6,11 @@ const rainbow = @import("common/color_space_utils.zig").rainbow;
 
 const rainbow_num_frames = 256;
 
+const width = 1920;
+const height = 1080;
+
+const num_planes = 3;
+
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
@@ -22,7 +27,6 @@ pub fn main() !void {
     const file = try std.fs.cwd().createFile("rainbow.264", .{});
     defer file.close();
     const writer = file.writer();
-    _ = writer; // TODO
 
     var encoder = try nvenc.Encoder.init(
         &context,
@@ -36,15 +40,52 @@ pub fn main() !void {
 
     std.debug.print("parameter sets: {any}", .{encoder.parameter_sets});
 
-    // var frame = try nvenc.Frame.alloc(1920, 1080, allocator);
-    // defer frame.free(allocator);
-    //
-    // for (0..rainbow_num_frames) |i| {
-    //     const r = rainbow(i, rainbow_num_frames);
-    //     frame.timestamp = i * 33;
-    //     @memset(frame.data.y, r.y);
-    //     @memset(frame.data.u, r.u);
-    //     @memset(frame.data.v, r.v);
-    //     try encoder.encode(&frame, writer);
-    // }
+    var frame_buffer_host = try allocator.alloc(u8, num_planes * height * width);
+    defer allocator.free(frame_buffer_host);
+    const plane_size = height * width;
+    const y_plane = frame_buffer_host[0 * plane_size .. 1 * plane_size];
+    const u_plane = frame_buffer_host[1 * plane_size .. 2 * plane_size];
+    const v_plane = frame_buffer_host[2 * plane_size .. 3 * plane_size];
+
+    const frame_buffer_device = try nvenc.cuda.allocPitch(width, num_planes * height, 1);
+    defer nvenc.cuda.free(frame_buffer_device.ptr);
+
+    const frame = nvenc.Frame{
+        .data = frame_buffer_device.ptr,
+        .format = .yuv444,
+        .pitch = @intCast(frame_buffer_device.pitch),
+        .dims = .{
+            .width = width,
+            .height = height,
+        },
+    };
+
+    for (0..rainbow_num_frames) |i| {
+        const r = rainbow(i, rainbow_num_frames);
+
+        // TODO: timestamp
+
+        @memset(y_plane, r.y);
+        @memset(u_plane, r.u);
+        @memset(v_plane, r.v);
+
+        try nvenc.cuda.copy2D(
+            .{
+                .host_to_device = .{
+                    .src = frame_buffer_host,
+                    .dst = frame.data,
+                },
+            },
+            .{
+                .src_pitch = width,
+                .dst_pitch = frame.data,
+                .dims = .{
+                    .width = width,
+                    .height = 3 * height,
+                },
+            },
+        );
+
+        try encoder.encode(&frame, writer);
+    }
 }

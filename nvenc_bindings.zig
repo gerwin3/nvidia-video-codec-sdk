@@ -236,9 +236,9 @@ pub const PicFlags = enum(c_uint) {
 };
 
 pub const PicStruct = enum(c_uint) {
-    rame = 1,
-    ield_top_bottom = 2,
-    ield_bottom_top = 3,
+    frame = 1,
+    field_top_bottom = 2,
+    field_bottom_top = 3,
 };
 
 pub const PicType = enum(c_uint) {
@@ -542,7 +542,12 @@ pub const InitializeParams = extern struct {
 
 pub const LockBitstream = extern struct {
     version: u32,
-    bitFlags1: u32,
+    bitfields: packed struct {
+        doNotWait: bool,
+        ltrFrame: bool,
+        getRCStats: bool,
+        _reserved: u29,
+    },
     outputBitstream: ?*anyopaque,
     sliceOffsets: [*c]u32,
     frameIdx: u32,

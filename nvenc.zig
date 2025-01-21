@@ -380,31 +380,31 @@ pub const Encoder = struct {
         var register_resource = std.mem.zeroes(nvenc_bindings.RegisterResource);
         register_resource.version = nvenc_bindings.register_resource_ver;
         register_resource.resourceType = .cudadeviceptr;
-        register_resource.resourceToRegister = frame.data.ptr;
-        register_resource.width = frame.width;
-        register_resource.height = frame.height;
-        register_resource.pitch = frame.stride;
+        register_resource.resourceToRegister = @ptrFromInt(@as(usize, @intCast(frame.data)));
+        register_resource.width = frame.dims.width;
+        register_resource.height = frame.dims.height;
+        register_resource.pitch = frame.pitch;
         register_resource.bufferFormat = buffer_format;
-        try status(nvenc_bindings.nvEncRegisterResource(self.encoder, &register_resource));
-        errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch unreachable;
+        try status(nvenc_bindings.nvEncRegisterResource.?(self.encoder, &register_resource));
+        errdefer status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, register_resource.registeredResource)) catch unreachable;
         io_cache_item.input_registered_resource = register_resource.registeredResource;
 
         var map_input_resource = std.mem.zeroes(nvenc_bindings.MapInputResource);
         map_input_resource.version = nvenc_bindings.map_input_resource_ver;
         map_input_resource.registeredResource = register_resource.registeredResource;
-        try status(nvenc_bindings.nvEncMapInputResource(self.encoder, &map_input_resource));
-        errdefer status(nvenc_bindings.nvEncUnmapResource(self.encoder, map_input_resource.mappedResource)) catch unreachable;
+        try status(nvenc_bindings.nvEncMapInputResource.?(self.encoder, &map_input_resource));
+        errdefer status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, map_input_resource.mappedResource)) catch unreachable;
         io_cache_item.input_mapped_resource = map_input_resource.mappedResource;
 
         var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
         pic_params.version = nvenc_bindings.pic_params_ver;
         pic_params.pictureStruct = .frame;
         pic_params.inputBuffer = map_input_resource.mappedResource;
-        pic_params.bufferFormat = buffer_format;
-        pic_params.inputWidth = frame.width;
-        pic_params.inputHeight = frame.height;
+        pic_params.bufferFmt = buffer_format;
+        pic_params.inputWidth = frame.dims.width;
+        pic_params.inputHeight = frame.dims.height;
         pic_params.outputBitstream = io_cache_item.output_bitstream;
-        const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
+        const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture.?(self.encoder, &pic_params));
 
         // This will cause head to increment.
         // The current input output pair will be cached.
@@ -413,7 +413,7 @@ pub const Encoder = struct {
         // NOTE: If encoder returns success it means we can now drain all
         // queued IO. If it returns need_more_input we need to wait until the
         // next time it returns success (no data will be written in that case).
-        if (encode_status == .success) self.drain(writer);
+        if (encode_status == .success) try self.drain(writer);
     }
 
     /// Before ending encoding call this function to flush buffered output.
@@ -427,18 +427,18 @@ pub const Encoder = struct {
         pic_params.encodePicFlags = nvenc_bindings.pic_flag_eos;
         try status(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
 
-        self.drain(writer);
+        try self.drain(writer);
     }
 
     fn drain(self: *Encoder, writer: anytype) !void {
         while (self.io_cache.readItem()) |read_item| {
-            status(nvenc_bindings.nvEncUnmapResource(self.encoder, read_item.input_mapped_resource)) catch unreachable;
-            status(nvenc_bindings.nvEncUnregisterResource(self.encoder, read_item.input_registered_resource)) catch unreachable;
+            status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, read_item.input_mapped_resource)) catch unreachable;
+            status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, read_item.input_registered_resource)) catch unreachable;
 
             var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
             lock_bitstream.outputBitstream = read_item.output_bitstream;
-            lock_bitstream.doNotWait = false; // this is mandatory in sync mode
-            status(nvenc_bindings.nvEncLockBitstream(self.encoder, &lock_bitstream)) catch unreachable;
+            lock_bitstream.bitfields.doNotWait = false; // this is mandatory in sync mode
+            status(nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream)) catch unreachable;
 
             defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, read_item.output_bitstream)) catch unreachable;
 
