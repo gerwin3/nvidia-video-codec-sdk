@@ -15,10 +15,11 @@ pub const Codec = nvdec_bindings.VideoCodec;
 /// Important: The data is stored on device and cannot be accessed directly.
 pub const Frame = struct {
     data: struct {
-        y: []volatile u8,
+        y: cuda.DevicePtr,
         /// U and V planes are weaved in NV12.
-        uv: []volatile u8,
+        uv: cuda.DevicePtr,
     },
+
     /// Pitch means stride in NVIDIA speak.
     /// NV12 frames have the same stride for the Y pland and UV plane. UV values are weaved.
     pitch: u32,
@@ -26,6 +27,7 @@ pub const Frame = struct {
         width: u32,
         height: u32,
     },
+
     timestamp: u64,
 };
 
@@ -42,7 +44,7 @@ pub const Decoder = struct {
 
     // Buffer size 4 should suffice since that is the buffer size NVDEC uses
     // internally for the decoding output queue.
-    const FrameQueue = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
+    const OutputBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
 
     context: *cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
@@ -58,7 +60,7 @@ pub const Decoder = struct {
 
     error_state: ?Error = null,
 
-    frame_queue: FrameQueue,
+    output_buffer: OutputBuffer,
     cur_frame_ptr: ?cuda.DevicePtr = null,
 
     /// Create new decoder. Decoder will use the provided context. The context
@@ -68,12 +70,12 @@ pub const Decoder = struct {
         var self = try allocator.create(Decoder);
         errdefer allocator.destroy(self);
 
-        var buffer = FrameQueue.init();
-        errdefer buffer.deinit();
+        var output_buffer = OutputBuffer.init();
+        errdefer output_buffer.deinit();
 
         self.* = .{
             .context = context,
-            .buffer = buffer,
+            .output_buffer = output_buffer,
             .allocator = allocator,
         };
 
@@ -92,18 +94,16 @@ pub const Decoder = struct {
     }
 
     pub fn destroy(self: *Decoder) void {
-        // this little dance is what NvDecoder does so we do it too...
+        // this little dance is what NvDecoder does so we do it too...?
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        self.unmap_current_frame() catch |err| {
-            nvdec_log.err("failed to unmap frame (err = {})", .{err});
-        };
+        self.unmap_current_frame();
 
         // User must flush decoder before destroying it. If there are still
         // frames left in the queue this means the deocder was not flushed
         // properly.
-        std.debug.assert(self.frame_queue.readItem() == null);
+        std.debug.assert(self.output_buffer.readItem() == null);
 
         if (self.parser != null) result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
         if (self.decoder != null) result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch unreachable;
@@ -148,7 +148,7 @@ pub const Decoder = struct {
     }
 
     fn dequeue_and_map_frame(self: *Decoder) !?Frame {
-        const parser_disp_info = self.frame_queue.readItem() orelse return null;
+        const parser_disp_info = self.output_buffer.readItem() orelse return null;
 
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.progressive_frame;
@@ -193,8 +193,8 @@ pub const Decoder = struct {
 
         return Frame{
             .data = .{
-                .y = cuda.sliceFromDevicePtr(frame_data, 0, frame_height * pitch),
-                .uv = cuda.sliceFromDevicePtr(frame_data, uv_offset, uv_offset + ((frame_height / 2) * pitch)),
+                .y = frame_data,
+                .uv = frame_data + uv_offset,
             },
             .pitch = @intCast(frame_pitch),
             .dims = .{
@@ -340,7 +340,7 @@ pub const Decoder = struct {
         // NOTE: If this unreachable ever hits it means that my assumption that
         // NVDEC will never buffer more than 4 frames for dispatch at a time is
         // incorrect. Increase buffer size as needed.
-        self.frame_queue.writeItem(parser_disp_info.?.*) catch unreachable;
+        self.output_buffer.writeItem(parser_disp_info.?.*) catch unreachable;
 
         return 1;
     }

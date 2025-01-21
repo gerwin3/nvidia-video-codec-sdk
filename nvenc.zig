@@ -9,16 +9,48 @@ pub const cuda = @import("cuda");
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub const load = nvenc_bindings.load;
 
+/// Input frame.
+/// Important: The data is stored on device and cannot be accessed directly.
+pub const Frame = struct {
+    pub const Format = enum {
+        /// 4:2:0, semi-planar Y and weaved UV.
+        nv12,
+        /// 4:2:0, planar YVU.
+        yv12,
+        /// 4:2:0, planar YUV (called IYUV in nvEncodeAPI.h for historical reasons)
+        yuv420,
+        /// 4:4:4, planar YUV
+        yuv444,
+        /// 4:2:0, planar YUV, 10 bit
+        yuv420_10bit,
+        /// 4:4:4, planar YUV, 10 bit
+        yuv444_10bit,
+        /// Alpha layer RGB
+        argb,
+        /// Alpha layer RGB (10 bit)
+        argb10,
+        /// Alpha layer YUV
+        ayuv,
+        /// Alpha layer BGR
+        abgr,
+        /// Alpha layer BGR, 10 bit
+        abgr10,
+    };
+
+    data: cuda.DevicePtr,
+    format: Format,
+
+    /// Pitch means stride in NVIDIA speak.
+    pitch: u32,
+    dims: struct {
+        width: u32,
+        height: u32,
+    },
+};
+
 pub const H264Format = enum {
     yuv420,
     yuv444,
-
-    fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
-        return switch (self) {
-            .yuv420 => .nv12, // TODO: maybe???
-            .yuv444 => .yuv44,
-        };
-    }
 };
 
 pub const H264Profile = enum {
@@ -37,15 +69,6 @@ pub const HEVCFormat = enum {
     yuv444,
     yuv420_10bit,
     yuv444_10bit,
-
-    fn to_inner(self: H264Format) nvenc_bindings.BufferFormat {
-        return switch (self) {
-            .yuv420 => .nv12, // TODO: maybe???
-            .yuv444 => .yuv44,
-            .yuv420_10bit => .yuv420_10bit,
-            .yuv444_10bit => .yuv444_10bit,
-        };
-    }
 };
 
 pub const HEVCProfile = enum {
@@ -60,12 +83,12 @@ pub const HEVCProfile = enum {
 /// profile for the selected preset will be used.
 pub const Codec = union(enum) {
     h264: struct {
-        profile: ?H264Profile,
-        format: H264Format,
+        profile: ?H264Profile = null,
+        format: H264Format = .yuv420,
     },
     hevc: struct {
-        profile: ?HEVCProfile,
-        format: HEVCFormat,
+        profile: ?HEVCProfile = null,
+        format: HEVCFormat = .yuv420,
     },
 };
 
@@ -130,7 +153,6 @@ pub const Encoder = struct {
 
     context: *cuda.Context,
     encoder: ?*anyopaque,
-    format: nvenc_bindings.BufferFormat,
     parameter_sets: []u8,
 
     // The IO cache is needed to keep track of input/output pairs that have
@@ -202,7 +224,6 @@ pub const Encoder = struct {
         config.frameIntervalP = 1; // IPP mode
         config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
 
-        var format = undefined;
         switch (options.codec) {
             .h264 => |h264_options| {
                 config.profileGUID = switch (h264_options.profile) {
@@ -219,7 +240,6 @@ pub const Encoder = struct {
                     .yuv420 => 1,
                     .yuv444 => 3,
                 };
-                format = h264_options.format.to_inner();
             },
             .hevc => |hevc_options| {
                 config.profileGUID = switch (hevc_options.profile) {
@@ -235,7 +255,6 @@ pub const Encoder = struct {
                     .yuv420_10bit, .yuv444_10bit => 2,
                     .yuv420, .yuv444 => 0,
                 };
-                format = hevc_options.format.to_inner();
             },
         }
 
@@ -311,7 +330,6 @@ pub const Encoder = struct {
         return Encoder{
             .context = context,
             .encoder = encoder,
-            .format = format,
             .parameter_sets = sequence_param_payload_buf,
             .io_cache_items = io_cache_items,
             .io_cache = std.fifo.LinearFifo(IOCacheItem, .Slice).init(io_cache_items),
@@ -342,22 +360,27 @@ pub const Encoder = struct {
     }
 
     /// Frame is valid until next call to decode, flush or deinit.
-    pub fn encode(
-        self: *Encoder,
-        frame: struct {
-            data: []u8,
-            width: u32,
-            height: u32,
-            stride: u32,
-        },
-        writer: anytype,
-    ) !void {
+    pub fn encode(self: *Encoder, frame: *const Frame, writer: anytype) !void {
         // NOTE: If this hits it means that we do not have enough cache space
         // which should not be possible given we caclculated the max number of
         // buffered output we can expect for cache_size.
         std.debug.assert(self.io_cache.writableLength() > 0);
 
         const io_cache_item = &self.io_cache.writableSlice(0)[0];
+
+        const buffer_format: nvenc_bindings.BufferFormat = switch (frame.format) {
+            .nv12 => .nv12,
+            .yv12 => .yv12,
+            .yuv420 => .iyuv,
+            .yuv444 => .yuv444,
+            .yuv420_10bit => .yuv420_10bit,
+            .yuv444_10bit => .yuv444_10bit,
+            .argb => .argb,
+            .argb10 => .argb10,
+            .ayuv => .ayuv,
+            .abgr => .abgr,
+            .abgr10 => .abgr10,
+        };
 
         var register_resource = std.mem.zeroes(nvenc_bindings.RegisterResource);
         register_resource.version = nvenc_bindings.register_resource_ver;
@@ -366,7 +389,7 @@ pub const Encoder = struct {
         register_resource.width = frame.width;
         register_resource.height = frame.height;
         register_resource.pitch = frame.stride;
-        register_resource.bufferFormat = self.format; // TODO: asserts!
+        register_resource.bufferFormat = buffer_format; // TODO: asserts!
         try status(nvenc_bindings.nvEncRegisterResource(self.encoder, &register_resource));
         errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch unreachable;
         io_cache_item.input_registered_resource = register_resource.registeredResource;
@@ -382,7 +405,7 @@ pub const Encoder = struct {
         pic_params.version = nvenc_bindings.pic_params_ver;
         pic_params.pictureStruct = .frame;
         pic_params.inputBuffer = map_input_resource.mappedResource;
-        pic_params.bufferFormat = self.format;
+        pic_params.bufferFormat = buffer_format;
         pic_params.inputWidth = frame.width;
         pic_params.inputHeight = frame.height;
         pic_params.outputBitstream = io_cache_item.output_bitstream;

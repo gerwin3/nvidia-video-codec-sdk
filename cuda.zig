@@ -42,27 +42,19 @@ pub const Device = cuda_bindings.Device;
 
 pub const DevicePtr = cuda_bindings.DevicePtr;
 
-pub inline fn sliceFromDevicePtr(device_ptr: DevicePtr, start: usize, end: usize) []volatile u8 {
-    return @as([*]volatile u8, @ptrFromInt(device_ptr))[start..end];
-}
-
-pub inline fn devicePtrFromSlice(slice: []volatile u8) DevicePtr {
-    return @as(DevicePtr, @intFromPtr(slice.ptr));
-}
-
 pub fn copy2D(
     copy: union(enum) {
         host_to_device: struct {
             src: []const u8,
-            dst: []volatile u8,
+            dst: DevicePtr,
         },
         device_to_host: struct {
-            src: []volatile u8,
+            src: DevicePtr,
             dst: []u8,
         },
         device_to_device: struct {
-            src: []volatile u8,
-            dst: []volatile u8,
+            src: DevicePtr,
+            dst: DevicePtr,
         },
     },
     args: struct {
@@ -75,14 +67,11 @@ pub fn copy2D(
     },
 ) !void {
     std.debug.assert(args.dims.width <= args.src_pitch and args.dims.width <= args.dst_pitch);
-    const src_len = switch (copy) {
-        inline else => |copy_args| copy_args.src.len,
-    };
-    std.debug.assert(src_len == (args.src_pitch * args.dims.height));
-    const dst_len = switch (copy) {
-        inline else => |copy_args| copy_args.dst.len,
-    };
-    std.debug.assert(dst_len == (args.dst_pitch * args.dims.height));
+    switch (copy) {
+        .host_to_device => |copy_args| std.debug.assert(copy_args.src.len == (args.src_pitch * args.dims.height)),
+        .device_to_host => |copy_args| std.debug.assert(copy_args.dst.len == (args.dst_pitch * args.dims.height)),
+        else => {},
+    }
     const params = switch (copy) {
         .host_to_device => |copy_args| cuda_bindings.Memcpy2D{
             .srcXInBytes = 0,
@@ -96,7 +85,7 @@ pub fn copy2D(
             .dstY = 0,
             .dstMemoryType = cuda_bindings.MemoryType.device,
             .dstHost = null,
-            .dstDevice = devicePtrFromSlice(copy_args.dst),
+            .dstDevice = copy_args.dst,
             .dstArray = std.mem.zeroes(cuda_bindings.Array),
             .dstPitch = args.dst_pitch,
             .WidthInBytes = args.dims.width,
@@ -107,7 +96,7 @@ pub fn copy2D(
             .srcY = 0,
             .srcMemoryType = cuda_bindings.MemoryType.device,
             .srcHost = null,
-            .srcDevice = devicePtrFromSlice(copy_args.src),
+            .srcDevice = copy_args.src,
             .srcArray = std.mem.zeroes(cuda_bindings.Array),
             .srcPitch = args.src_pitch,
             .dstXInBytes = 0,
@@ -125,14 +114,14 @@ pub fn copy2D(
             .srcY = 0,
             .srcMemoryType = cuda_bindings.MemoryType.device,
             .srcHost = null,
-            .srcDevice = devicePtrFromSlice(copy_args.src),
+            .srcDevice = copy_args.src,
             .srcArray = std.mem.zeroes(cuda_bindings.Array),
             .srcPitch = args.src_pitch,
             .dstXInBytes = 0,
             .dstY = 0,
             .dstMemoryType = cuda_bindings.MemoryType.device,
             .dstHost = null,
-            .dstDevice = devicePtrFromSlice(copy_args.dst),
+            .dstDevice = copy_args.dst,
             .dstArray = std.mem.zeroes(cuda_bindings.Array),
             .dstPitch = args.dst_pitch,
             .WidthInBytes = args.dims.width,
