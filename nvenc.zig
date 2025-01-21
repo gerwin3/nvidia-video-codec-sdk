@@ -83,11 +83,11 @@ pub const HEVCProfile = enum {
 /// profile for the selected preset will be used.
 pub const Codec = union(enum) {
     h264: struct {
-        profile: ?H264Profile = null,
+        profile: H264Profile = .baseline,
         format: H264Format = .yuv420,
     },
     hevc: struct {
-        profile: ?HEVCProfile = null,
+        profile: HEVCProfile = .main,
         format: HEVCFormat = .yuv420,
     },
 };
@@ -146,9 +146,9 @@ pub const EncoderOptions = struct {
 
 pub const Encoder = struct {
     const IOCacheItem = struct {
-        input_registered_resource: nvenc_bindings.RegisteredPtr,
-        input_mapped_resource: nvenc_bindings.InputPtr,
-        output_bitstream: nvenc_bindings.OutputPtr,
+        input_registered_resource: nvenc_bindings.RegisteredPtr = null,
+        input_mapped_resource: nvenc_bindings.InputPtr = null,
+        output_bitstream: nvenc_bindings.OutputPtr = null,
     };
 
     context: *cuda.Context,
@@ -169,11 +169,11 @@ pub const Encoder = struct {
     pub fn init(context: *cuda.Context, options: EncoderOptions, allocator: std.mem.Allocator) !Encoder {
         var encoder: ?*anyopaque = null;
 
-        var params = std.mem.zeroes(nvenc_bindings.OpenSessionExParams);
-        params.version = nvenc_bindings.open_encode_session_erx_params_ver;
+        var params = std.mem.zeroes(nvenc_bindings.OpenEncodeSessionExParams);
+        params.version = nvenc_bindings.open_encode_session_ex_params_ver;
         params.deviceType = .cuda;
         params.device = context.inner;
-        params.apiVersion = nvenc_bindings.version;
+        params.apiVersion = nvenc_bindings.version.?;
 
         try status(nvenc_bindings.nvEncOpenEncodeSessionEx.?(&params, &encoder));
 
@@ -209,17 +209,14 @@ pub const Encoder = struct {
         initialize_params.frameRateNum = options.frame_rate.num;
         initialize_params.frameRateDen = options.frame_rate.den;
         initialize_params.enablePTD = 1; // Presentation order
-        initialize_params.reportSliceOffsets = 0;
-        initialize_params.enableSubFrameWrite = 0;
         initialize_params.maxEncodeWidth = options.resolution.width;
         initialize_params.maxEncodeHeight = options.resolution.height;
-        initialize_params.enableMEOnlyMode = 0;
-        initialize_params.enableEncodeAsync = false;
+        initialize_params.enableEncodeAsync = 0;
 
         var preset_config = std.mem.zeroes(nvenc_bindings.PresetConfig);
         preset_config.version = nvenc_bindings.preset_config_ver;
         preset_config.presetCfg.version = nvenc_bindings.config_ver;
-        try status(nvenc_bindings.nvEncGetEncodePresetConfig.?(codec_guid, preset_guid, &preset_config));
+        try status(nvenc_bindings.nvEncGetEncodePresetConfig.?(encoder, codec_guid, preset_guid, &preset_config));
 
         config.frameIntervalP = 1; // IPP mode
         config.gopLength = options.idr_interval orelse nvenc_bindings.infinite_goplength;
@@ -247,11 +244,11 @@ pub const Encoder = struct {
                     .main10 => nvenc_bindings.hevc_profile_main10_guid,
                     .frext => nvenc_bindings.hevc_profile_frext_guid,
                 };
-                config.encodeCodecConfig.h264Config.chromaFormatIDC = switch (hevc_options.profile) {
+                config.encodeCodecConfig.hevcConfig.bitfields.chromaFormatIDC = switch (hevc_options.format) {
                     .yuv420, .yuv420_10bit => 1,
                     .yuv444, .yuv444_10bit => 3,
                 };
-                config.encodeCodecConfig.h264Config.pixelBitDepthMinus8 = switch (hevc_options.format) {
+                config.encodeCodecConfig.hevcConfig.bitfields.pixelBitDepthMinus8 = switch (hevc_options.format) {
                     .yuv420_10bit, .yuv444_10bit => 2,
                     .yuv420, .yuv444 => 0,
                 };
@@ -270,32 +267,32 @@ pub const Encoder = struct {
             .vbr => |rc_opts| {
                 config.rcParams.rateControlMode = .vbr;
                 config.rcParams.averageBitRate = rc_opts.average_bitrate;
-                config.rcParams.maxBitrate = rc_opts.max_bitrate;
+                config.rcParams.maxBitRate = rc_opts.max_bitrate;
             },
             .vbr_hq => |rc_opts| {
                 config.rcParams.rateControlMode = .vbr_hq;
                 config.rcParams.averageBitRate = rc_opts.average_bitrate;
-                config.rcParams.maxBitrate = rc_opts.max_bitrate;
+                config.rcParams.maxBitRate = rc_opts.max_bitrate;
             },
             .cbr => |rc_opts| {
                 config.rcParams.rateControlMode = .cbr;
-                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                config.rcParams.averageBitRate = rc_opts.bitrate;
             },
             .cbr_hq => |rc_opts| {
                 config.rcParams.rateControlMode = .cbr_hq;
-                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                config.rcParams.averageBitRate = rc_opts.bitrate;
             },
             .cbr_lowdelay_hq => |rc_opts| {
                 config.rcParams.rateControlMode = .cbr_lowdelay_hq;
-                config.rcParams.averageBitRate = rc_opts.average_bitrate;
+                config.rcParams.averageBitRate = rc_opts.bitrate;
             },
         }
 
-        try status(nvenc_bindings.nvEncInitializeEncoder(encoder, &initialize_params));
-        errdefer status(nvenc_bindings.nvEncDestroyEncoder(encoder)) catch unreachable;
+        try status(nvenc_bindings.nvEncInitializeEncoder.?(encoder, &initialize_params));
+        errdefer status(nvenc_bindings.nvEncDestroyEncoder.?(encoder)) catch unreachable;
 
         const sequence_param_payload_cap = 1024;
-        var sequence_param_payload_buf = allocator.alloc(u8, sequence_param_payload_cap);
+        var sequence_param_payload_buf = try allocator.alloc(u8, sequence_param_payload_cap);
         var sequence_param_payload_size: u32 = 0;
         var sequence_param_payload = std.mem.zeroes(nvenc_bindings.SequenceParamPayload);
         sequence_param_payload.version = nvenc_bindings.sequence_param_payload_ver;
@@ -305,22 +302,22 @@ pub const Encoder = struct {
         status(nvenc_bindings.nvEncGetSequenceParams.?(encoder, &sequence_param_payload)) catch unreachable;
         sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
 
-        const cache_size = config.frameIntervalP + config.rcParams.lookaheadDepth;
+        const cache_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
 
-        const io_cache_items = allocator.alloc(IOCacheItem, cache_size);
+        const io_cache_items = try allocator.alloc(IOCacheItem, cache_size);
         errdefer allocator.free(io_cache_items);
 
-        errdefer {
-            for (&io_cache_items) |*item| {
-                if (item.* != undefined) status(nvenc_bindings.nvEncDestroyBitstreamBuffer(encoder, item.output_bitstream)) catch |err| {
-                    nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
-                };
+        for (io_cache_items) |*item| item.* = .{};
+        errdefer for (io_cache_items) |item| {
+            if (item.output_bitstream) |output_bitstream| {
+                status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(encoder, output_bitstream)) catch unreachable;
             }
-        }
-        for (&io_cache_items) |*item| {
+        };
+
+        for (io_cache_items) |*item| {
             var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
             create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
-            try status(nvenc_bindings.nvEncCreateBitstreamBuffer(encoder, &create_bitstream_buffer));
+            try status(nvenc_bindings.nvEncCreateBitstreamBuffer.?(encoder, &create_bitstream_buffer));
             item.* = .{
                 .input_registered_resource = null,
                 .output_bitstream = create_bitstream_buffer.bitstreamBuffer,
@@ -338,23 +335,17 @@ pub const Encoder = struct {
     }
 
     pub fn deinit(self: *Encoder) void {
-        self.unlock_current_output() catch |err| {
-            nvenc_log.err("failed to unlock current bitstream (err = {})", .{err});
-        };
-
         // User must flush encoder before deinit. If the cache has items still
         // it means the user did not flush properly.
         std.debug.assert(self.io_cache.readableLength() == 0);
         self.io_cache.deinit();
 
-        for (&self.io_cache_items) |*item| {
-            status(nvenc_bindings.nvEncDestroyBitstreamBuffer(self.encoder, item.output_bitstream)) catch |err| {
-                nvenc_log.err("failed to destroy bitstream buffer (err = {})", .{err});
-            };
+        for (self.io_cache_items) |*item| {
+            status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(self.encoder, item.output_bitstream)) catch unreachable;
         }
         self.allocator.free(self.io_cache_items);
 
-        status(nvenc_bindings.?.nvEncDestroyEncoder(self.encoder)) catch |err| {
+        status(nvenc_bindings.nvEncDestroyEncoder.?(self.encoder)) catch |err| {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
         };
     }
@@ -389,7 +380,7 @@ pub const Encoder = struct {
         register_resource.width = frame.width;
         register_resource.height = frame.height;
         register_resource.pitch = frame.stride;
-        register_resource.bufferFormat = buffer_format; // TODO: asserts!
+        register_resource.bufferFormat = buffer_format;
         try status(nvenc_bindings.nvEncRegisterResource(self.encoder, &register_resource));
         errdefer status(nvenc_bindings.nvEncUnregisterResource(self.encoder, register_resource.registeredResource)) catch unreachable;
         io_cache_item.input_registered_resource = register_resource.registeredResource;

@@ -769,7 +769,7 @@ pub fn load() !void {
     const std = @import("std");
     const builtin = @import("builtin");
 
-    var dylib = try comptime switch (builtin.target.os) {
+    var dylib = try switch (builtin.target.os.tag) {
         .linux, .macos => std.DynLib.open("libnvidia-encode.so.1"),
         .windows => switch (builtin.target.cpu.arch) {
             .x86 => std.DynLib.open("nvEncodeAPI.dll"),
@@ -779,11 +779,11 @@ pub fn load() !void {
         else => @compileError("unsupported operating system"),
     };
 
-    const NvEncodeAPIGetMaxSupportedVersion = dylib.lookup(*const fn (version: u32) Status, "NvEncodeAPIGetMaxSupportedVersion") orelse @panic("invalid libnvidia-encode");
-    var version_lib = 0;
+    const NvEncodeAPIGetMaxSupportedVersion = dylib.lookup(*const fn (version: *u32) Status, "NvEncodeAPIGetMaxSupportedVersion") orelse @panic("invalid libnvidia-encode");
+    var version_lib: u32 = 0;
     if (NvEncodeAPIGetMaxSupportedVersion(&version_lib) != .success)
         @panic("NvEncodeAPIGetMaxSupportedVersion failed");
-    if (((api_major_version << 4) | api_minor_version) > version)
+    if (((api_major_version << 4) | api_minor_version) > version_lib)
         return error.DriverVersionTooOld;
 
     const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");

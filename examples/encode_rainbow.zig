@@ -22,11 +22,12 @@ pub fn main() !void {
     const file = try std.fs.cwd().createFile("rainbow.264", .{});
     defer file.close();
     const writer = file.writer();
+    _ = writer; // TODO
 
     var encoder = try nvenc.Encoder.init(
-        context,
+        &context,
         .{
-            .codec = .h264,
+            .codec = .{ .h264 = .{} },
             .resolution = .{ .width = 1920, .height = 1080 },
         },
         allocator,
@@ -35,15 +36,15 @@ pub fn main() !void {
 
     std.debug.print("parameter sets: {any}", .{encoder.parameter_sets});
 
-    var frame = try nvenc.Frame.alloc(1920, 1080, allocator);
-    defer frame.free(allocator);
-
-    for (0..rainbow_num_frames) |i| {
-        const r = rainbow(i, rainbow_num_frames);
-        frame.timestamp = i * 33;
-        @memset(frame.data.y, r.y);
-        @memset(frame.data.u, r.u);
-        @memset(frame.data.v, r.v);
-        try encoder.encode(&frame, writer);
-    }
+    // var frame = try nvenc.Frame.alloc(1920, 1080, allocator);
+    // defer frame.free(allocator);
+    //
+    // for (0..rainbow_num_frames) |i| {
+    //     const r = rainbow(i, rainbow_num_frames);
+    //     frame.timestamp = i * 33;
+    //     @memset(frame.data.y, r.y);
+    //     @memset(frame.data.u, r.u);
+    //     @memset(frame.data.v, r.v);
+    //     try encoder.encode(&frame, writer);
+    // }
 }

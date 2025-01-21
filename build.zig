@@ -121,15 +121,15 @@ fn addNvEnc(
     nvenc.addImport("cuda", cuda_modules.cuda);
     nvenc.addImport("nvenc_bindings", nvenc_bindings);
 
-    // // Example
-    // const example_encode_rainbow = b.addExecutable(.{
-    //     .name = "example_encode_rainbow",
-    //     .root_source_file = b.path("examples/encode_rainbow.zig"),
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // example_encode_rainbow.root_module.addImport("nvenc", nvenc);
-    // b.installArtifact(example_encode_rainbow);
+    // Example
+    const example_encode_rainbow = b.addExecutable(.{
+        .name = "example_encode_rainbow",
+        .root_source_file = b.path("examples/encode_rainbow.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example_encode_rainbow.root_module.addImport("nvenc", nvenc);
+    b.installArtifact(example_encode_rainbow);
 
     return nvenc;
 }
