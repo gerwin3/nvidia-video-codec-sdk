@@ -173,7 +173,7 @@ pub const Encoder = struct {
         params.version = nvenc_bindings.open_encode_session_ex_params_ver;
         params.deviceType = .cuda;
         params.device = context.inner;
-        params.apiVersion = nvenc_bindings.version.?;
+        params.apiVersion = nvenc_bindings.api_version;
 
         try status(nvenc_bindings.nvEncOpenEncodeSessionEx.?(&params, &encoder));
 

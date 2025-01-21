@@ -743,7 +743,6 @@ pub const ApiFunctionList = extern struct {
     _reserved2: [279]?*anyopaque,
 };
 
-pub var version: ?u32 = null;
 pub var nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) Status = null;
 pub var nvEncInitializeEncoder: ?*const fn (?*anyopaque, ?*InitializeParams) callconv(.C) Status = null;
 pub var nvEncCreateInputBuffer: ?*const fn (?*anyopaque, ?*CreateInputBuffer) callconv(.C) Status = null;
@@ -788,10 +787,10 @@ pub fn load() !void {
 
     const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");
     var function_list = std.mem.zeroes(ApiFunctionList);
+    function_list.version = api_function_list_ver;
     if (NvEncodeAPICreateInstance(&function_list) != .success)
         @panic("NvEncodeAPICreateInstance failed");
 
-    version = function_list.version;
     nvEncGetEncodePresetConfig = function_list.nvEncGetEncodePresetConfig;
     nvEncInitializeEncoder = function_list.nvEncInitializeEncoder;
     nvEncCreateInputBuffer = function_list.nvEncCreateInputBuffer;
