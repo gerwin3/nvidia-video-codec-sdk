@@ -122,11 +122,13 @@ pub const Decoder = struct {
         if (self.cur_frame_data) |frame_data| {
             result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
             std.debug.print("unmap: {}\n", .{frame_data}); // TODO
+            std.debug.print("cur_frame: null\n", .{}); // TODO
             self.cur_frame_data = null;
         }
 
         if (self.output_buffer.readItem()) |frame| {
             self.cur_frame_data = frame.data.y;
+            std.debug.print("cur_frame: {}\n", .{frame.data.y}); // TODO
             return frame;
         }
 
@@ -152,6 +154,7 @@ pub const Decoder = struct {
 
         if (self.output_buffer.readItem()) |frame| {
             self.cur_frame_data = frame.data.y;
+            std.debug.print("cur_frame: {}\n", .{frame.data.y}); // TODO
             return frame;
         } else {
             return null;
@@ -289,16 +292,6 @@ pub const Decoder = struct {
 
         if (self.error_state != null) return 0;
 
-        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        result(nvdec_bindings.cuvidGetDecodeStatus.?(
-            self.decoder,
-            parser_disp_info.?.picture_index,
-            &get_decode_status,
-        )) catch unreachable;
-
-        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
-        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
-
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.?.progressive_frame;
         proc_params.second_field = parser_disp_info.?.repeat_first_field + 1;
@@ -323,6 +316,18 @@ pub const Decoder = struct {
         errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
         std.debug.assert(frame_data != 0);
         std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.?.picture_index }); // TODO
+
+        // NOTE: Doing this after mapping operation since NvDecoder does it
+        // too, probably for good reasons.
+        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
+        result(nvdec_bindings.cuvidGetDecodeStatus.?(
+            self.decoder,
+            parser_disp_info.?.picture_index,
+            &get_decode_status,
+        )) catch unreachable;
+
+        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
+        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
         const frame_width = self.surface_info.?.frame_width;
         const frame_height = self.surface_info.?.frame_height;

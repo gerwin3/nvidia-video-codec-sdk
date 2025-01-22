@@ -189,6 +189,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
 
     var bitstream = std.ArrayList(u8).init(allocator);
     defer bitstream.deinit();
+    const bitstream_writer = bitstream.writer();
 
     // // TODO
     // const file = try std.fs.cwd().createFile("rainbow.264", .{});
@@ -216,7 +217,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
             },
         );
         try context.pop();
-        try encoder.encode(&in_frame, bitstream.writer());
+        try encoder.encode(&in_frame, bitstream_writer);
     }
 
     test_frames.reset();
@@ -288,7 +289,6 @@ fn test_expected_frame(
     const expected_test_frame = test_frames_it.next() orelse return error.TestUnexpectedFrame;
 
     try context.push();
-
     try nvdec.cuda.copy2D(
         .{ .device_to_host = .{
             .src = out_frame.data.y,
@@ -303,7 +303,6 @@ fn test_expected_frame(
             },
         },
     );
-
     try nvdec.cuda.copy2D(
         .{ .device_to_host = .{
             .src = out_frame.data.uv,
@@ -318,7 +317,6 @@ fn test_expected_frame(
             },
         },
     );
-
     try context.pop();
 
     try expected_test_frame.expect_similar(.{
