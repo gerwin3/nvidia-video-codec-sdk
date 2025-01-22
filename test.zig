@@ -4,22 +4,29 @@ const cuda = @import("cuda");
 const nvenc = @import("nvenc");
 const nvdec = @import("nvdec");
 
+test "default config h264 full hd" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
 const TestColor = enum {
     red,
     green,
     blue,
     pink,
 
-    fn to_yuv(self: TestColor) []f32 {
+    fn to_yuv(self: TestColor) [3]f32 {
         return switch (self) {
-            .red => rgb2yuv(255.0, 0.0, 0.0),
-            .green => rgb2yuv(0.0, 255.0, 0.0),
-            .blue => rgb2yuv(0.0, 0.0, 255.0),
-            .pink => rgb2yuv(255.0, 0.0, 255.0),
+            .red => rgb2yuv(.{ 255.0, 0.0, 0.0 }),
+            .green => rgb2yuv(.{ 0.0, 255.0, 0.0 }),
+            .blue => rgb2yuv(.{ 0.0, 0.0, 255.0 }),
+            .pink => rgb2yuv(.{ 255.0, 0.0, 255.0 }),
         };
     }
 
-    fn from_yuv(yuv: []f32) ?TestColor {
+    fn from_yuv(yuv: [3]f32) ?TestColor {
         const epsilon = 1.0;
         const rgb = yuv2rgb(yuv);
         if ((255.0 - rgb[0] < epsilon) and rgb[1] < epsilon and rgb[2] < epsilon)
@@ -51,6 +58,7 @@ const TestFrame = struct {
             1 => .{ .q1 = .green, .q2 = .blue, .q3 = .pink, .q4 = .red },
             2 => .{ .q1 = .blue, .q2 = .pink, .q3 = .red, .q4 = .green },
             3 => .{ .q1 = .pink, .q2 = .red, .q3 = .green, .q4 = .blue },
+            else => unreachable,
         };
     }
 
@@ -85,18 +93,18 @@ const TestFrame = struct {
         // You will just have to believe me that this function tests whether
         // the decoded frame is the same frame as the original test frame
         // during encoding.
-        const q1_index_y = ((frame.height / 4) * frame.pitch) + frame.width / 4;
-        const q2_index_y = ((frame.height / 4) * frame.pitch) + frame.width / 4 * 3;
-        const q3_index_y = ((frame.height / 4 * 3) * frame.pitch) + frame.width / 4;
-        const q4_index_y = ((frame.height / 4 * 3) * frame.pitch) + frame.width / 4 * 3;
-        const q1_index_uv = ((frame.height / 2 / 4) * frame.pitch) + frame.width / 4;
-        const q2_index_uv = ((frame.height / 2 / 4) * frame.pitch) + frame.width / 4 * 3;
-        const q3_index_uv = ((frame.height / 2 / 4 * 3) * frame.pitch) + frame.width / 4;
-        const q4_index_uv = ((frame.height / 2 / 4 * 3) * frame.pitch) + frame.width / 4 * 3;
-        const q1 = .{ frame.data.y[q1_index_y], frame.data.uv[q1_index_uv], frame.data.uv[q1_index_uv + 1] };
-        const q2 = .{ frame.data.y[q2_index_y], frame.data.uv[q2_index_uv], frame.data.uv[q2_index_uv + 1] };
-        const q3 = .{ frame.data.y[q3_index_y], frame.data.uv[q3_index_uv], frame.data.uv[q3_index_uv + 1] };
-        const q4 = .{ frame.data.y[q4_index_y], frame.data.uv[q4_index_uv], frame.data.uv[q4_index_uv + 1] };
+        const q1_index_y = ((frame.dims.height / 4) * frame.dims.width) + (frame.dims.width / 4);
+        const q2_index_y = ((frame.dims.height / 4) * frame.dims.width) + (frame.dims.width / 4 * 3);
+        const q3_index_y = ((frame.dims.height / 4 * 3) * frame.dims.width) + (frame.dims.width / 4);
+        const q4_index_y = ((frame.dims.height / 4 * 3) * frame.dims.width) + (frame.dims.width / 4 * 3);
+        const q1_index_uv = ((frame.dims.height / 2 / 4) * frame.dims.width) + (frame.dims.width / 4);
+        const q2_index_uv = ((frame.dims.height / 2 / 4) * frame.dims.width) + (frame.dims.width / 4 * 3);
+        const q3_index_uv = ((frame.dims.height / 2 / 4 * 3) * frame.dims.width) + (frame.dims.width / 4);
+        const q4_index_uv = ((frame.dims.height / 2 / 4 * 3) * frame.dims.width) + (frame.dims.width / 4 * 3);
+        const q1 = .{ frame.y[q1_index_y], frame.uv[q1_index_uv], frame.uv[q1_index_uv + 1] };
+        const q2 = .{ frame.y[q2_index_y], frame.uv[q2_index_uv], frame.uv[q2_index_uv + 1] };
+        const q3 = .{ frame.y[q3_index_y], frame.uv[q3_index_uv], frame.uv[q3_index_uv + 1] };
+        const q4 = .{ frame.y[q4_index_y], frame.uv[q4_index_uv], frame.uv[q4_index_uv + 1] };
         try std.testing.expectEqual(@as(?TestColor, self.q1), TestColor.from_yuv(color_f32(q1)));
         try std.testing.expectEqual(@as(?TestColor, self.q2), TestColor.from_yuv(color_f32(q2)));
         try std.testing.expectEqual(@as(?TestColor, self.q3), TestColor.from_yuv(color_f32(q3)));
@@ -125,6 +133,8 @@ const TestFrameIterator = struct {
         return TestFrame.from_rotation_no(rotation);
     }
 };
+
+const FrameData = struct { y: []u8, uv: []u8 };
 
 fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize) !void {
     const allocator = std.testing.allocator;
@@ -202,6 +212,17 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
 
     test_frames.reset();
 
+    var out_frame_buffer = FrameData{
+        .y = try allocator.alloc(u8, height * width),
+        .uv = try allocator.alloc(u8, height / 2 * width),
+    };
+    defer {
+        allocator.free(out_frame_buffer.y);
+        allocator.free(out_frame_buffer.uv);
+    }
+
+    var bitstream_pump = std.io.fixedBufferStream(bitstream.items);
+
     var buffer = try allocator.alloc(u8, 4096);
     defer allocator.free(buffer);
 
@@ -209,7 +230,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     defer nal.deinit();
 
     while (true) {
-        const len = try bitstream.reader().readAll(buffer);
+        const len = try bitstream_pump.reader().readAll(buffer);
 
         var last_nal: usize = 0;
 
@@ -221,7 +242,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
                 }
                 if (nal.items.len > 0) {
                     if (try decoder.decode(nal.items)) |out_frame| {
-                        try test_expected_frame(decoder.context, &out_frame);
+                        try test_expected_frame(decoder.context, &test_frames, &out_frame, &out_frame_buffer);
                     }
                     nal.clearRetainingCapacity();
                     last_nal = index;
@@ -237,71 +258,61 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     }
 
     if (try decoder.decode(nal.items)) |out_frame| {
-        try test_expected_frame(decoder.context, &out_frame);
+        try test_expected_frame(decoder.context, &test_frames, &out_frame, &out_frame_buffer);
     }
 
     while (try decoder.flush()) |out_frame| {
-        try test_expected_frame(decoder.context, &out_frame);
+        try test_expected_frame(decoder.context, &test_frames, &out_frame, &out_frame_buffer);
     }
 
-    std.testing.expectEqual(test_frames.next(), @as(?TestFrame, null));
+    try std.testing.expectEqual(test_frames.next(), @as(?TestFrame, null));
 }
 
 fn test_expected_frame(
     context: *cuda.Context,
     test_frames_it: *TestFrameIterator,
-    frame: *const nvdec.Frame,
+    out_frame: *const nvdec.Frame,
+    out_frame_buffer: *const FrameData,
 ) !void {
-    const static: struct {
-        var out_frame_buffer: ?struct { y: []u8, uv: []u8 } = null;
-    } = .{};
-
     if (test_frames_it.next()) |expected_test_frame| {
         try context.push();
 
         try nvdec.cuda.copy2D(
             .{ .device_to_host = .{
-                .src = frame.data.y,
-                .dst = static.frame_buffer.?.y,
+                .src = out_frame.data.y,
+                .dst = out_frame_buffer.y,
             } },
             .{
-                .src_pitch = frame.pitch,
-                .dst_pitch = frame.dims.width,
+                .src_pitch = out_frame.pitch,
+                .dst_pitch = out_frame.dims.width,
                 .dims = .{
-                    .width = frame.dims.width,
-                    .height = frame.dims.height,
+                    .width = out_frame.dims.width,
+                    .height = out_frame.dims.height,
                 },
             },
         );
 
         try nvdec.cuda.copy2D(
             .{ .device_to_host = .{
-                .src = frame.data.uv,
-                .dst = static.frame_buffer.?.uv,
+                .src = out_frame.data.uv,
+                .dst = out_frame_buffer.uv,
             } },
             .{
-                .src_pitch = frame.pitch,
-                .dst_pitch = frame.width,
+                .src_pitch = out_frame.pitch,
+                .dst_pitch = out_frame.dims.width,
                 .dims = .{
-                    .width = frame.width,
-                    .height = frame.height / 2,
+                    .width = out_frame.dims.width,
+                    .height = out_frame.dims.height / 2,
                 },
             },
         );
 
-        // TODO:
-        // std.debug.print("yuv = ({}, {}, {})\n", .{
-        //     frame_buffer.?.y[0],
-        //     frame_buffer.?.uv[0],
-        //     frame_buffer.?.uv[1],
-        // });
-
         try context.pop();
 
         try expected_test_frame.expect_similar(.{
-            .y = static.out_frame_buffer.y,
-            .uv = static.out_frame_buffer.uv,
-            .dims = .{ .width = frame.width, .height = frame.height },
+            .y = out_frame_buffer.y,
+            .uv = out_frame_buffer.uv,
+            .dims = .{ .width = out_frame.dims.width, .height = out_frame.dims.height },
         });
     } else {
         try std.testing.expect(false);
@@ -309,9 +320,9 @@ fn test_expected_frame(
 }
 
 fn init() !void {
-    var static: struct {
-        var is_initialized = false;
-    } = .{};
+    const static = struct {
+        var is_initialized: bool = false;
+    };
 
     if (!static.is_initialized) {
         try cuda.load();
@@ -322,18 +333,18 @@ fn init() !void {
     }
 }
 
-pub fn rgb2yuv(r: f32, g: f32, b: f32) [3]f32 {
+fn rgb2yuv(rgb: [3]f32) [3]f32 {
     return .{
-        0.257 * r + 0.504 * g + 0.098 * b + 16.0,
-        -0.148 * r - 0.291 * g + 0.439 * b + 128.0,
-        0.439 * r - 0.368 * g - 0.071 * b + 128.0,
+        0.257 * rgb[0] + 0.504 * rgb[1] + 0.098 * rgb[2] + 16.0,
+        -0.148 * rgb[0] - 0.291 * rgb[1] + 0.439 * rgb[2] + 128.0,
+        0.439 * rgb[0] - 0.368 * rgb[1] - 0.071 * rgb[2] + 128.0,
     };
 }
 
-pub fn yuv2rgb(y: f32, u: f32, v: f32) [3]f32 {
-    y -= 16.0;
-    u -= 128.0;
-    v -= 128.0;
+fn yuv2rgb(yuv: [3]f32) [3]f32 {
+    const y = yuv[0] - 16.0;
+    const u = yuv[1] - 128.0;
+    const v = yuv[2] - 128.0;
     return .{
         1.164 * y + 1.596 * v,
         1.164 * y - 0.392 * u - 0.813 * v,
@@ -341,7 +352,7 @@ pub fn yuv2rgb(y: f32, u: f32, v: f32) [3]f32 {
     };
 }
 
-pub fn color_f32(color: [3]u8) [3]f32 {
+fn color_f32(color: [3]u8) [3]f32 {
     return .{
         @floatFromInt(color[0]),
         @floatFromInt(color[1]),
@@ -349,7 +360,7 @@ pub fn color_f32(color: [3]u8) [3]f32 {
     };
 }
 
-pub fn color_bytes(color: [3]f32) [3]u8 {
+fn color_bytes(color: [3]f32) [3]u8 {
     return .{
         @intFromFloat(color[0]),
         @intFromFloat(color[1]),

@@ -131,5 +131,5 @@ fn handle_frame(cuda_context: *nvdec.cuda.Context, frame: *const nvdec.Frame) !v
         frame_buffer.?.uv[1],
     });
 
-    try cuda_context.push();
+    try cuda_context.pop();
 }

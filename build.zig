@@ -24,6 +24,18 @@ pub fn build(b: *std.Build) !void {
             }
         }
     }
+
+    const test_suite = b.addTest(.{
+        .root_source_file = b.path("test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    test_suite.root_module.addImport("cuda", cuda_modules.cuda);
+    test_suite.root_module.addImport("nvdec", nvdec);
+    test_suite.root_module.addImport("nvenc", nvenc);
+
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&b.addRunArtifact(test_suite).step);
 }
 
 const CudaModules = struct {
