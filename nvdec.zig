@@ -44,7 +44,7 @@ pub const Decoder = struct {
 
     // Buffer size 4 should suffice since that is the buffer size NVDEC uses
     // internally for the decoding output queue.
-    const OutputBuffer = std.fifo.LinearFifo(nvdec_bindings.ParserDispInfo, .{ .Static = 4 });
+    const OutputBuffer = std.fifo.LinearFifo(Frame, .{ .Static = 4 });
 
     context: *cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
@@ -61,7 +61,7 @@ pub const Decoder = struct {
     error_state: ?Error = null,
 
     output_buffer: OutputBuffer,
-    cur_frame_ptr: ?cuda.DevicePtr = null,
+    cur_frame_data_device_ptr: ?cuda.DevicePtr = null,
 
     /// Create new decoder. Decoder will use the provided context. The context
     /// will be automatically pushed and popped upon usage internally.
@@ -98,12 +98,14 @@ pub const Decoder = struct {
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        self.unmap_current_frame();
+        if (self.cur_frame_data_device_ptr) |frame_ptr| {
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
+        }
 
-        // User must flush decoder before destroying it. If there are still
-        // frames left in the queue this means the deocder was not flushed
-        // properly.
-        std.debug.assert(self.output_buffer.readItem() == null);
+        // Unmap any remaining video frames in buffer.
+        while (self.output_buffer.readItem()) |frame| {
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame.data.y)) catch unreachable;
+        }
 
         if (self.parser != null) result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
         if (self.decoder != null) result(nvdec_bindings.cuvidDestroyDecoder.?(self.decoder)) catch unreachable;
@@ -115,9 +117,16 @@ pub const Decoder = struct {
     pub fn decode(self: *Decoder, data: []const u8) !?Frame {
         // First unmap the frame we previously mapped and loaned out to the
         // caller.
-        self.unmap_current_frame();
+        if (self.cur_frame_data_device_ptr) |frame_ptr| {
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
+            std.debug.print("unmap: {}\n", .{frame_ptr}); // TODO
+            self.cur_frame_data_device_ptr = null;
+        }
 
-        if (try self.dequeue_and_map_frame()) |frame| return frame;
+        if (self.output_buffer.readItem()) |frame| {
+            self.cur_frame_data_device_ptr = frame.data.y;
+            return frame;
+        }
 
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
         if (data.len > 0) {
@@ -134,82 +143,23 @@ pub const Decoder = struct {
 
         // handle possible errors from one of the callbacks
         if (self.error_state) |err| {
+            std.debug.print("{}\n", .{err}); // TODO
             self.error_state = null;
             return err;
         }
 
-        return try self.dequeue_and_map_frame();
+        if (self.output_buffer.readItem()) |frame| {
+            self.cur_frame_data_device_ptr = frame.data.y;
+            return frame;
+        } else {
+            return null;
+        }
     }
 
     /// Before ending decoding call flush in a loop until it returns null.
     pub fn flush(self: *Decoder) !?Frame {
         // calling decode with an empty slice means flush
         return self.decode(&.{});
-    }
-
-    fn dequeue_and_map_frame(self: *Decoder) !?Frame {
-        const parser_disp_info = self.output_buffer.readItem() orelse return null;
-
-        var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
-        proc_params.progressive_frame = parser_disp_info.progressive_frame;
-        proc_params.second_field = parser_disp_info.repeat_first_field + 1;
-        proc_params.top_field_first = parser_disp_info.top_field_first;
-        proc_params.unpaired_field = if (parser_disp_info.repeat_first_field < 0) 1 else 0;
-        // TODO: By leaving this uncommented we are defaulting to the global stream which
-        // is not ideal especially in multi-decoder situations.
-        // proc_params.output_stream = m_cuvidStream;
-
-        var frame_data: cuda.DevicePtr = 0;
-        var frame_pitch: c_uint = 0;
-        try result(nvdec_bindings.cuvidMapVideoFrame64.?(
-            self.decoder,
-            parser_disp_info.picture_index,
-            &frame_data,
-            &frame_pitch,
-            &proc_params,
-        ));
-        std.debug.assert(frame_data != 0);
-
-        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        result(nvdec_bindings.cuvidGetDecodeStatus.?(
-            self.decoder,
-            parser_disp_info.picture_index,
-            &get_decode_status,
-        )) catch unreachable;
-
-        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
-        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
-
-        const frame_width = self.surface_info.?.frame_width;
-        const frame_height = self.surface_info.?.frame_height;
-        const surface_height = self.surface_info.?.surface_height;
-        const pitch: u32 = @intCast(frame_pitch);
-
-        // nv12 is a biplanar format so all we need here is to calculate the offset
-        // to the UV plane (which contains both U and V) using the surface height
-        const uv_offset = surface_height * pitch;
-
-        self.cur_frame_ptr = frame_data;
-
-        return Frame{
-            .data = .{
-                .y = frame_data,
-                .uv = frame_data + uv_offset,
-            },
-            .pitch = @intCast(frame_pitch),
-            .dims = .{
-                .width = frame_width,
-                .height = frame_height,
-            },
-            .timestamp = @intCast(parser_disp_info.timestamp),
-        };
-    }
-
-    fn unmap_current_frame(self: *Decoder) void {
-        if (self.cur_frame_ptr) |frame_ptr| {
-            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
-            self.cur_frame_ptr = null;
-        }
     }
 
     fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
@@ -337,10 +287,70 @@ pub const Decoder = struct {
 
         if (self.error_state != null) return 0;
 
+        var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
+        result(nvdec_bindings.cuvidGetDecodeStatus.?(
+            self.decoder,
+            parser_disp_info.?.picture_index,
+            &get_decode_status,
+        )) catch unreachable;
+
+        if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
+        if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
+
+        var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
+        proc_params.progressive_frame = parser_disp_info.?.progressive_frame;
+        proc_params.second_field = parser_disp_info.?.repeat_first_field + 1;
+        proc_params.top_field_first = parser_disp_info.?.top_field_first;
+        proc_params.unpaired_field = if (parser_disp_info.?.repeat_first_field < 0) 1 else 0;
+        // TODO: By leaving this uncommented we are defaulting to the global stream which
+        // is not ideal especially in multi-decoder situations.
+        // proc_params.output_stream = m_cuvidStream;
+
+        // TODO: The bug here is quite simple: If the user is reusing the same
+        // device buffer for each frame then the decoder will botch as soon as
+        // it needs to map a second frame in the buffer since it has already
+        // mapped the same resource...
+        var frame_data: cuda.DevicePtr = 0;
+        var frame_pitch: c_uint = 0;
+        result(nvdec_bindings.cuvidMapVideoFrame64.?(
+            self.decoder,
+            parser_disp_info.?.picture_index,
+            &frame_data,
+            &frame_pitch,
+            &proc_params,
+        )) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+        std.debug.assert(frame_data != 0);
+        std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.?.picture_index }); // TODO
+
+        const frame_width = self.surface_info.?.frame_width;
+        const frame_height = self.surface_info.?.frame_height;
+        const surface_height = self.surface_info.?.surface_height;
+        const pitch: u32 = @intCast(frame_pitch);
+
+        // nv12 is a biplanar format so all we need here is to calculate the offset
+        // to the UV plane (which contains both U and V) using the surface height
+        const uv_offset = surface_height * pitch;
+
+        const frame = Frame{
+            .data = .{
+                .y = frame_data,
+                .uv = frame_data + uv_offset,
+            },
+            .pitch = @intCast(frame_pitch),
+            .dims = .{
+                .width = frame_width,
+                .height = frame_height,
+            },
+            .timestamp = @intCast(parser_disp_info.?.timestamp),
+        };
+
         // NOTE: If this unreachable ever hits it means that my assumption that
         // NVDEC will never buffer more than 4 frames for dispatch at a time is
         // incorrect. Increase buffer size as needed.
-        self.output_buffer.writeItem(parser_disp_info.?.*) catch unreachable;
+        self.output_buffer.writeItem(frame) catch unreachable;
 
         return 1;
     }
