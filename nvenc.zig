@@ -150,14 +150,14 @@ pub const Encoder = struct {
     encoder: ?*anyopaque,
     parameter_sets: []u8,
 
-    // The IO pool is needed to keep track of input/output pairs that have been
+    // The IO buffer is needed to keep track of input/output pairs that have been
     // buffered by the encoder. If the encoder produces need_more_input it
     // means more input is needed to produce a frame. In this case we must keep
     // track of the input buffers so we can keep them registered and mapped
     // until we can drain the encoder buffer, which is the next time
     // nvEncEncodePicture returns success.
-    io_pool_items: []InputOutputPair,
-    io_pool: LinearFifoPool(InputOutputPair),
+    io_buffer_items: []InputOutputPair,
+    io_buffer: LinearFifoPool(InputOutputPair),
 
     allocator: std.mem.Allocator,
 
@@ -301,19 +301,18 @@ pub const Encoder = struct {
         sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
         errdefer allocator.free(sequence_param_payload_buf);
 
-        const pool_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
+        const io_buffer_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
+        const io_buffer_items = try allocator.alloc(InputOutputPair, io_buffer_size);
+        errdefer allocator.free(io_buffer_items);
 
-        const io_pool_items = try allocator.alloc(InputOutputPair, pool_size);
-        errdefer allocator.free(io_pool_items);
-
-        for (io_pool_items) |*item| item.* = .{};
-        errdefer for (io_pool_items) |item| {
+        for (io_buffer_items) |*item| item.* = .{};
+        errdefer for (io_buffer_items) |item| {
             if (item.output_bitstream) |output_bitstream| {
                 status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(encoder, output_bitstream)) catch unreachable;
             }
         };
 
-        for (io_pool_items) |*item| {
+        for (io_buffer_items) |*item| {
             var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
             create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
             try status(nvenc_bindings.nvEncCreateBitstreamBuffer.?(encoder, &create_bitstream_buffer));
@@ -328,8 +327,8 @@ pub const Encoder = struct {
         return Encoder{
             .encoder = encoder,
             .parameter_sets = sequence_param_payload_buf,
-            .io_pool_items = io_pool_items,
-            .io_pool = LinearFifoPool(InputOutputPair).init(io_pool_items),
+            .io_buffer_items = io_buffer_items,
+            .io_buffer = LinearFifoPool(InputOutputPair).init(io_buffer_items),
             .allocator = allocator,
         };
     }
@@ -337,14 +336,14 @@ pub const Encoder = struct {
     pub fn deinit(self: *Encoder) void {
         self.allocator.free(self.parameter_sets);
 
-        // User must flush encoder before deinit. If the pool has items still
+        // User must flush encoder before deinit. If the buffer has items still
         // it means the user did not flush properly.
-        std.debug.assert(self.io_pool.empty());
+        std.debug.assert(self.io_buffer.empty());
 
-        for (self.io_pool_items) |*item| {
+        for (self.io_buffer_items) |*item| {
             status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(self.encoder, item.output_bitstream)) catch unreachable;
         }
-        self.allocator.free(self.io_pool_items);
+        self.allocator.free(self.io_buffer_items);
 
         status(nvenc_bindings.nvEncDestroyEncoder.?(self.encoder)) catch |err| {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
@@ -353,10 +352,10 @@ pub const Encoder = struct {
 
     /// Frame is valid until next call to decode, flush or deinit.
     pub fn encode(self: *Encoder, frame: *const Frame, writer: anytype) !void {
-        // NOTE: If this hits it means that we do not have enough pool space
+        // NOTE: If this hits it means that we do not have enough buffer space
         // which should not be possible given we caclculated the max number of
-        // buffered output we can expect for pool_size.
-        const input_output_pair = self.io_pool.reserve() catch unreachable;
+        // buffered output we can expect for io_buffer_size.
+        const input_output_pair = self.io_buffer.reserve() catch unreachable;
 
         const buffer_format: nvenc_bindings.BufferFormat = switch (frame.format) {
             .nv12 => .nv12,
@@ -422,7 +421,7 @@ pub const Encoder = struct {
     }
 
     fn drain(self: *Encoder, writer: anytype) !void {
-        while (self.io_pool.pop()) |input_output_pair| {
+        while (self.io_buffer.pop()) |input_output_pair| {
             status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, input_output_pair.input_mapped_resource)) catch unreachable;
             status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, input_output_pair.input_registered_resource)) catch unreachable;
 
@@ -534,6 +533,14 @@ pub const Error = error{
     ResourceNotMapped,
 };
 
+/// Linear FIFO queue similar to std.LinearFifo. Implementation adapted from
+/// TigerBeetle stdx.RingBuffer.
+///
+/// The queue acts as a ring buffer but instead of pushing and popping items it
+/// operates on pointer to the underlying store. Essentially the items are
+/// already there. Calling reserve returns a pointer to the current tail and
+/// advances the tail. Calling pop returns a pointer to the current head and
+/// advances the head.
 pub fn LinearFifoPool(comptime T: type) type {
     return struct {
         const Self = @This();
@@ -547,7 +554,7 @@ pub fn LinearFifoPool(comptime T: type) type {
             return .{ .resevoir = data };
         }
 
-        /// Reserve next item from the pool.
+        /// Reserve next item and return pointer to it.
         pub inline fn reserve(self: *Self) error{NoSpaceLeft}!*T {
             if (self.count == self.resevoir.len) return error.NoSpaceLeft;
             defer self.count += 1;
