@@ -141,7 +141,7 @@ pub const EncoderOptions = struct {
 };
 
 pub const Encoder = struct {
-    const IOCacheItem = struct {
+    const InputOutputPair = struct {
         input_registered_resource: nvenc_bindings.RegisteredPtr = null,
         input_mapped_resource: nvenc_bindings.InputPtr = null,
         output_bitstream: nvenc_bindings.OutputPtr = null,
@@ -150,14 +150,14 @@ pub const Encoder = struct {
     encoder: ?*anyopaque,
     parameter_sets: []u8,
 
-    // The IO cache is needed to keep track of input/output pairs that have
-    // been buffered by the encoder. If the encoder produces need_more_input it
+    // The IO pool is needed to keep track of input/output pairs that have been
+    // buffered by the encoder. If the encoder produces need_more_input it
     // means more input is needed to produce a frame. In this case we must keep
     // track of the input buffers so we can keep them registered and mapped
     // until we can drain the encoder buffer, which is the next time
     // nvEncEncodePicture returns success.
-    io_cache_items: []IOCacheItem,
-    io_cache: std.fifo.LinearFifo(IOCacheItem, .Slice),
+    io_pool_items: []InputOutputPair,
+    io_pool: LinearFifoPool(InputOutputPair),
 
     allocator: std.mem.Allocator,
 
@@ -301,19 +301,19 @@ pub const Encoder = struct {
         sequence_param_payload_buf = try allocator.realloc(sequence_param_payload_buf, sequence_param_payload_size);
         errdefer allocator.free(sequence_param_payload_buf);
 
-        const cache_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
+        const pool_size: usize = @intCast(config.frameIntervalP + config.rcParams.lookaheadDepth);
 
-        const io_cache_items = try allocator.alloc(IOCacheItem, cache_size);
-        errdefer allocator.free(io_cache_items);
+        const io_pool_items = try allocator.alloc(InputOutputPair, pool_size);
+        errdefer allocator.free(io_pool_items);
 
-        for (io_cache_items) |*item| item.* = .{};
-        errdefer for (io_cache_items) |item| {
+        for (io_pool_items) |*item| item.* = .{};
+        errdefer for (io_pool_items) |item| {
             if (item.output_bitstream) |output_bitstream| {
                 status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(encoder, output_bitstream)) catch unreachable;
             }
         };
 
-        for (io_cache_items) |*item| {
+        for (io_pool_items) |*item| {
             var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
             create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
             try status(nvenc_bindings.nvEncCreateBitstreamBuffer.?(encoder, &create_bitstream_buffer));
@@ -328,8 +328,8 @@ pub const Encoder = struct {
         return Encoder{
             .encoder = encoder,
             .parameter_sets = sequence_param_payload_buf,
-            .io_cache_items = io_cache_items,
-            .io_cache = std.fifo.LinearFifo(IOCacheItem, .Slice).init(io_cache_items),
+            .io_pool_items = io_pool_items,
+            .io_pool = LinearFifoPool(InputOutputPair).init(io_pool_items),
             .allocator = allocator,
         };
     }
@@ -337,15 +337,14 @@ pub const Encoder = struct {
     pub fn deinit(self: *Encoder) void {
         self.allocator.free(self.parameter_sets);
 
-        // User must flush encoder before deinit. If the cache has items still
+        // User must flush encoder before deinit. If the pool has items still
         // it means the user did not flush properly.
-        std.debug.assert(self.io_cache.readableLength() == 0);
-        self.io_cache.deinit();
+        std.debug.assert(self.io_pool.empty());
 
-        for (self.io_cache_items) |*item| {
+        for (self.io_pool_items) |*item| {
             status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(self.encoder, item.output_bitstream)) catch unreachable;
         }
-        self.allocator.free(self.io_cache_items);
+        self.allocator.free(self.io_pool_items);
 
         status(nvenc_bindings.nvEncDestroyEncoder.?(self.encoder)) catch |err| {
             nvenc_log.err("failed to destroy encoder (err = {})", .{err});
@@ -354,12 +353,10 @@ pub const Encoder = struct {
 
     /// Frame is valid until next call to decode, flush or deinit.
     pub fn encode(self: *Encoder, frame: *const Frame, writer: anytype) !void {
-        // NOTE: If this hits it means that we do not have enough cache space
+        // NOTE: If this hits it means that we do not have enough pool space
         // which should not be possible given we caclculated the max number of
-        // buffered output we can expect for cache_size.
-        std.debug.assert(self.io_cache.writableLength() > 0);
-
-        const io_cache_item = &self.io_cache.writableSlice(0)[0];
+        // buffered output we can expect for pool_size.
+        const input_output_pair = self.io_pool.reserve() catch unreachable;
 
         const buffer_format: nvenc_bindings.BufferFormat = switch (frame.format) {
             .nv12 => .nv12,
@@ -385,14 +382,14 @@ pub const Encoder = struct {
         register_resource.bufferFormat = buffer_format;
         try status(nvenc_bindings.nvEncRegisterResource.?(self.encoder, &register_resource));
         errdefer status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, register_resource.registeredResource)) catch unreachable;
-        io_cache_item.input_registered_resource = register_resource.registeredResource;
+        input_output_pair.input_registered_resource = register_resource.registeredResource;
 
         var map_input_resource = std.mem.zeroes(nvenc_bindings.MapInputResource);
         map_input_resource.version = nvenc_bindings.map_input_resource_ver;
         map_input_resource.registeredResource = register_resource.registeredResource;
         try status(nvenc_bindings.nvEncMapInputResource.?(self.encoder, &map_input_resource));
         errdefer status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, map_input_resource.mappedResource)) catch unreachable;
-        io_cache_item.input_mapped_resource = map_input_resource.mappedResource;
+        input_output_pair.input_mapped_resource = map_input_resource.mappedResource;
 
         var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
         pic_params.version = nvenc_bindings.pic_params_ver;
@@ -401,16 +398,8 @@ pub const Encoder = struct {
         pic_params.bufferFmt = buffer_format;
         pic_params.inputWidth = frame.dims.width;
         pic_params.inputHeight = frame.dims.height;
-        // TODO: Bug here because I misunderstood what LinearFifo.discard does.
-        // It will actually set to undefind after discard. So it is not
-        // supposed to be used with a "backing" slice like I was using it. Will
-        // need to use a more generic ring buffer approach here.
-        pic_params.outputBitstream = io_cache_item.output_bitstream;
+        pic_params.outputBitstream = input_output_pair.output_bitstream;
         const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture.?(self.encoder, &pic_params));
-
-        // This will cause head to increment.
-        // The current input output pair will be cached.
-        self.io_cache.update(1);
 
         // NOTE: If encoder returns success it means we can now drain all
         // queued IO. If it returns need_more_input we need to wait until the
@@ -433,17 +422,17 @@ pub const Encoder = struct {
     }
 
     fn drain(self: *Encoder, writer: anytype) !void {
-        while (self.io_cache.readItem()) |read_item| {
-            status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, read_item.input_mapped_resource)) catch unreachable;
-            status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, read_item.input_registered_resource)) catch unreachable;
+        while (self.io_pool.pop()) |input_output_pair| {
+            status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, input_output_pair.input_mapped_resource)) catch unreachable;
+            status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, input_output_pair.input_registered_resource)) catch unreachable;
 
             var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
             lock_bitstream.version = nvenc_bindings.lock_bitstream_ver;
-            lock_bitstream.outputBitstream = read_item.output_bitstream;
+            lock_bitstream.outputBitstream = input_output_pair.output_bitstream;
             lock_bitstream.bitfields.doNotWait = false; // this is mandatory in sync mode
             status(nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream)) catch unreachable;
 
-            defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, read_item.output_bitstream)) catch unreachable;
+            defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, input_output_pair.output_bitstream)) catch unreachable;
 
             const slice_ptr = @as([*]u8, @ptrCast(lock_bitstream.bitstreamBufferPtr));
             const slice = slice_ptr[0..lock_bitstream.bitstreamSizeInBytes];
@@ -544,3 +533,72 @@ pub const Error = error{
     ResourceNotRegistered,
     ResourceNotMapped,
 };
+
+pub fn LinearFifoPool(comptime T: type) type {
+    return struct {
+        const Self = @This();
+
+        resevoir: []T,
+        index: usize = 0,
+        count: usize = 0,
+
+        pub fn init(data: []T) Self {
+            std.debug.assert(data.len > 0);
+            return .{ .resevoir = data };
+        }
+
+        /// Reserve next item from the pool.
+        pub inline fn reserve(self: *Self) error{NoSpaceLeft}!*T {
+            if (self.count == self.resevoir.len) return error.NoSpaceLeft;
+            defer self.count += 1;
+            return &self.resevoir[(self.index + self.count) % self.resevoir.len];
+        }
+
+        /// Pop item in FIFO order with respect to the order they were reserved.
+        /// After calling pop the respective slot may be reserved again.
+        pub inline fn pop(self: *Self) ?*T {
+            if (self.empty()) return null;
+            const result = &self.resevoir[self.index];
+            self.index += 1;
+            self.index %= self.resevoir.len;
+            self.count -= 1;
+            return result;
+        }
+
+        pub inline fn empty(self: *const Self) bool {
+            return self.count == 0;
+        }
+    };
+}
+
+test "LinearFifoPool" {
+    var data: [4]u32 = .{ 1, 2, 3, 4 };
+    var fifo = LinearFifoPool(u32).init(&data);
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[0]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[1]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[2]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[3]));
+    try std.testing.expectEqual(fifo.reserve(), error.NoSpaceLeft);
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[0]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[0]));
+    try std.testing.expectEqual(fifo.reserve(), error.NoSpaceLeft);
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[1]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[2]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[3]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[0]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, null));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[1]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[2]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[3]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[1]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[2]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[3]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[0]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[1]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[2]));
+    try std.testing.expectEqual(fifo.reserve(), @as(error{NoSpaceLeft}!*u32, &data[3]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[0]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[1]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[2]));
+    try std.testing.expectEqual(fifo.pop(), @as(?*u32, &data[3]));
+}
