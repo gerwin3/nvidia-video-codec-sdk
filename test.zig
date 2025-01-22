@@ -158,14 +158,6 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     var encoder = try nvenc.Encoder.init(&context, encoder_options, allocator);
     defer encoder.deinit();
 
-    const decoder_codec = switch (encoder_options.codec) {
-        .h264 => nvdec.Codec.h264,
-        .hevc => nvdec.Codec.hevc,
-    };
-
-    var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec }, allocator);
-    defer decoder.destroy();
-
     const width = encoder_options.resolution.width;
     const height = encoder_options.resolution.height;
     std.debug.assert(width % 2 == 0);
@@ -239,6 +231,16 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     }
 
     const bitstream_buffer = bitstream.items;
+
+    const decoder_codec = switch (encoder_options.codec) {
+        .h264 => nvdec.Codec.h264,
+        .hevc => nvdec.Codec.hevc,
+    };
+
+    var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec }, allocator);
+    defer decoder.destroy();
+
+    // TODO: weird bug that causes frames to repeat in a weird way
 
     var last_nal: ?usize = 0;
 
