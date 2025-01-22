@@ -46,6 +46,8 @@ pub const Frame = struct {
         width: u32,
         height: u32,
     },
+
+    timestamp: u64,
 };
 
 pub const H264Format = enum {
@@ -397,6 +399,7 @@ pub const Encoder = struct {
         pic_params.bufferFmt = buffer_format;
         pic_params.inputWidth = frame.dims.width;
         pic_params.inputHeight = frame.dims.height;
+        pic_params.inputTimeStamp = frame.timestamp;
         pic_params.outputBitstream = input_output_pair.output_bitstream;
         const encode_status = try status_or_need_more_input(nvenc_bindings.nvEncEncodePicture.?(self.encoder, &pic_params));
 

@@ -57,7 +57,7 @@ pub fn main() !void {
     }
     try context.pop();
 
-    const frame = nvenc.Frame{
+    var frame = nvenc.Frame{
         .data = frame_data_device.ptr,
         .format = .nv12,
         .pitch = @intCast(frame_data_device.pitch),
@@ -65,13 +65,13 @@ pub fn main() !void {
             .width = width,
             .height = height,
         },
+        .timestamp = 0,
     };
 
     for (0..rainbow_num_frames) |i| {
+        frame.timestamp = i * 33;
+
         const r = rainbow(i, rainbow_num_frames);
-
-        // TODO: timestamp
-
         @memset(y_plane, r.y);
         for (0.., uv_plane) |uv_plane_index, _| {
             uv_plane[uv_plane_index] = if (uv_plane_index % 2 == 0) r.u else r.v;
