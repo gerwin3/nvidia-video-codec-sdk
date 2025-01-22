@@ -63,7 +63,7 @@ pub const Decoder = struct {
     error_state: ?Error = null,
 
     output_buffer: OutputBuffer,
-    cur_frame_data_device_ptr: ?cuda.DevicePtr = null,
+    cur_frame_data: ?cuda.DevicePtr = null,
 
     /// Create new decoder. Decoder will use the provided context. The context
     /// will be automatically pushed and popped upon usage internally.
@@ -100,8 +100,8 @@ pub const Decoder = struct {
         self.context.push() catch {};
         self.context.pop() catch {};
 
-        if (self.cur_frame_data_device_ptr) |frame_ptr| {
-            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
+        if (self.cur_frame_data) |frame_data| {
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
         }
 
         // Unmap any remaining video frames in buffer.
@@ -119,14 +119,14 @@ pub const Decoder = struct {
     pub fn decode(self: *Decoder, data: []const u8) !?Frame {
         // First unmap the frame we previously mapped and loaned out to the
         // caller.
-        if (self.cur_frame_data_device_ptr) |frame_ptr| {
-            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
-            std.debug.print("unmap: {}\n", .{frame_ptr}); // TODO
-            self.cur_frame_data_device_ptr = null;
+        if (self.cur_frame_data) |frame_data| {
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
+            std.debug.print("unmap: {}\n", .{frame_data}); // TODO
+            self.cur_frame_data = null;
         }
 
         if (self.output_buffer.readItem()) |frame| {
-            self.cur_frame_data_device_ptr = frame.data.y;
+            self.cur_frame_data = frame.data.y;
             return frame;
         }
 
@@ -151,7 +151,7 @@ pub const Decoder = struct {
         }
 
         if (self.output_buffer.readItem()) |frame| {
-            self.cur_frame_data_device_ptr = frame.data.y;
+            self.cur_frame_data = frame.data.y;
             return frame;
         } else {
             return null;
@@ -320,7 +320,7 @@ pub const Decoder = struct {
             self.error_state = err;
             return 0;
         };
-        errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
+        errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
         std.debug.assert(frame_data != 0);
         std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.?.picture_index }); // TODO
 
