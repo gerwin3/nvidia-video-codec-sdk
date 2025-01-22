@@ -42,9 +42,11 @@ pub const Decoder = struct {
     // many decoders:
     // https://forums.developer.nvidia.com/t/sharing-the-same-cuda-context-for-encoding-nvenc-and-decoding-nvdec/59285/13
 
+    const num_output_surfaces = 4;
+
     // Buffer size 4 should suffice since that is the buffer size NVDEC uses
     // internally for the decoding output queue.
-    const OutputBuffer = std.fifo.LinearFifo(Frame, .{ .Static = 4 });
+    const OutputBuffer = std.fifo.LinearFifo(Frame, .{ .Static = num_output_surfaces });
 
     context: *cuda.Context,
     parser: nvdec_bindings.VideoParser = null,
@@ -234,7 +236,7 @@ pub const Decoder = struct {
         // value for ulNumOutputSurfaces, therefore, depends upon how the
         // downstream functions that follow the decoding stage are processing
         // the data."
-        decoder_create_info.ulNumOutputSurfaces = 1;
+        decoder_create_info.ulNumOutputSurfaces = num_output_surfaces;
         decoder_create_info.ulCreationFlags = nvdec_bindings.create_flags.prefer_CUVID;
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
         // decoder_create_info.vidLock = lock;
@@ -306,10 +308,6 @@ pub const Decoder = struct {
         // is not ideal especially in multi-decoder situations.
         // proc_params.output_stream = m_cuvidStream;
 
-        // TODO: The bug here is quite simple: If the user is reusing the same
-        // device buffer for each frame then the decoder will botch as soon as
-        // it needs to map a second frame in the buffer since it has already
-        // mapped the same resource...
         var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
         result(nvdec_bindings.cuvidMapVideoFrame64.?(
@@ -322,6 +320,7 @@ pub const Decoder = struct {
             self.error_state = err;
             return 0;
         };
+        errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_ptr)) catch unreachable;
         std.debug.assert(frame_data != 0);
         std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.?.picture_index }); // TODO
 
@@ -349,7 +348,7 @@ pub const Decoder = struct {
 
         // NOTE: If this unreachable ever hits it means that my assumption that
         // NVDEC will never buffer more than 4 frames for dispatch at a time is
-        // incorrect. Increase buffer size as needed.
+        // incorrect. Increase num output surfaces (buffer size) as needed.
         self.output_buffer.writeItem(frame) catch unreachable;
 
         return 1;
