@@ -49,7 +49,7 @@ pub fn main() !void {
     const uv_plane = frame_data_host[y_plane_height * y_plane_width ..];
 
     try context.push();
-    const frame_data_device = try nvenc.cuda.allocPitch(width, (y_plane_height + uv_plane_height), .element_size_4);
+    const frame_data_device = try nvenc.cuda.allocPitch(width, (y_plane_height + uv_plane_height), .element_size_16);
     defer {
         context.push() catch unreachable;
         nvenc.cuda.free(frame_data_device.ptr);
