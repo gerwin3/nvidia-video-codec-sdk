@@ -134,10 +134,7 @@ pub const EncoderOptions = struct {
     },
     frame_rate: struct { num: u32, den: u32 } = .{ .num = 30, .den = 1 },
     idr_interval: ?u32 = null,
-    rate_control: ?RateControl = .{ .vbr = .{
-        .average_bitrate = 5_000_000,
-        .max_bitrate = 10_000_000,
-    } },
+    rate_control: ?RateControl = null,
 };
 
 pub const Encoder = struct {
