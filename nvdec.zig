@@ -11,14 +11,17 @@ pub const load = nvdec_bindings.load;
 
 pub const Codec = nvdec_bindings.VideoCodec;
 
-/// NV12 decoded frame.
+pub const Format = nvdec_bindings.VideoSurfaceFormat;
+
+/// Decoded frame.
 /// Important: The data is stored on device and cannot be accessed directly.
 pub const Frame = struct {
     data: struct {
         y: cuda.DevicePtr,
-        /// U and V planes are weaved in NV12.
-        uv: cuda.DevicePtr,
+        u: cuda.DevicePtr,
+        v: cuda.DevicePtr,
     },
+    format: Format,
 
     /// Pitch means stride in NVIDIA speak.
     /// NV12 frames have the same stride for the Y pland and UV plane. UV values are weaved.
@@ -29,10 +32,148 @@ pub const Frame = struct {
     },
 
     timestamp: u64,
+
+    /// Will unstride all planes.
+    /// Weaved UV planes remain one plane and will be put in chroma (NV12, P016).
+    /// For the other formats U is put in chroma, V in chroma2 (YUV444 and YUV444 16-bit).
+    /// When indexing into buffer account for reduced plane resolution for U and V (NV12, P016).
+    /// When indexing into buffer account for bits per pixel (P016, YUV444 16-bit).
+    pub fn copy_to_host(
+        self: *const Frame,
+        buffer: struct {
+            luma: []u8,
+            chroma: []u8,
+            chroma2: ?[]u8 = null,
+        },
+    ) !void {
+        // TODO: I have not really tested this except for the common NV12 case...
+
+        // Anyone thinking "I can refactor this by just introducing a couple of
+        // handy functions like get_luma_height(), get_chroma_width(), etc."
+        // please do not do it! Caveman function does the job and is very easy
+        // to reason about!
+
+        switch (self.format) {
+            .nv12 => {
+                std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
+                std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * self.dims.width);
+                std.debug.assert(buffer.chroma2 == null);
+                // copy Y plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.y,
+                    .dst = buffer.luma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width,
+                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
+                });
+                // copy UV plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.u,
+                    .dst = buffer.chroma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width,
+                    .dims = .{ .width = self.dims.width, .height = self.dims.height / 2 },
+                });
+            },
+            .p016 => {
+                std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
+                std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * (self.dims.width * 2));
+                std.debug.assert(buffer.chroma2 == null);
+                // copy Y plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.y,
+                    .dst = buffer.luma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width * 2,
+                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
+                });
+                // copy UV plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.u,
+                    .dst = buffer.chroma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width * 2,
+                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height / 2 },
+                });
+            },
+            .yuv444 => {
+                std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
+                std.debug.assert(buffer.chroma.len == self.dims.height * self.dims.width);
+                std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width);
+                // copy Y plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.y,
+                    .dst = buffer.luma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width,
+                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
+                });
+                // copy U plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.u,
+                    .dst = buffer.chroma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width,
+                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
+                });
+                // copy V plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.v,
+                    .dst = buffer.chroma2.?,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width,
+                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
+                });
+            },
+            .yuv444_16bit => {
+                std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
+                std.debug.assert(buffer.chroma.len == self.dims.height * self.dims.width * 2);
+                std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width * 2);
+                // copy Y plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.y,
+                    .dst = buffer.luma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width * 2,
+                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
+                });
+                // copy U plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.u,
+                    .dst = buffer.chroma,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width * 2,
+                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
+                });
+                // copy V plane
+                try cuda.copy2D(.{ .device_to_host = .{
+                    .src = self.data.v,
+                    .dst = buffer.chroma2.?,
+                } }, .{
+                    .src_pitch = self.pitch,
+                    .dst_pitch = self.dims.width * 2,
+                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
+                });
+            },
+        }
+    }
 };
 
 pub const DecoderOptions = struct {
     codec: Codec,
+
+    /// What format to output frames in. This will force the output format.
+    /// Leave unset to have the decoder decide.
+    output_format: ?Format,
 };
 
 /// NVDEC Video Decoder.
@@ -52,18 +193,21 @@ pub const Decoder = struct {
     parser: nvdec_bindings.VideoParser = null,
     decoder: nvdec_bindings.VideoDecoder = null,
 
-    allocator: std.mem.Allocator,
+    output_format: ?Format,
 
-    surface_info: ?struct {
+    format_info: ?struct {
         frame_width: u32,
         frame_height: u32,
         surface_height: u32,
+        output_format: nvdec_bindings.VideoSurfaceFormat,
     } = null,
 
     error_state: ?Error = null,
 
     output_buffer: OutputBuffer,
     cur_frame_data: ?cuda.DevicePtr = null,
+
+    allocator: std.mem.Allocator,
 
     /// Create new decoder. Decoder will use the provided context. The context
     /// will be automatically pushed and popped upon usage internally.
@@ -77,6 +221,7 @@ pub const Decoder = struct {
 
         self.* = .{
             .context = context,
+            .output_format = options.output_format,
             .output_buffer = output_buffer,
             .allocator = allocator,
         };
@@ -209,11 +354,13 @@ pub const Decoder = struct {
             self.error_state = error.CodecNotSupported;
             return 0;
         }
+
         if (format.?.coded_width > decode_caps.nMaxWidth or format.?.coded_height > decode_caps.nMaxHeight) {
             nvdec_log.err("resolution not supported (max resolution = {}x{})", .{ decode_caps.nMaxWidth, decode_caps.nMaxHeight });
             self.error_state = error.ResolutionNotSupported;
             return 0;
         }
+
         if (((format.?.coded_width >> 4) * (format.?.coded_height >> 4)) > decode_caps.nMaxMBCount) {
             nvdec_log.err("MB count too high (max MB count = {})", .{decode_caps.nMaxMBCount});
             self.error_state = error.ResolutionNotSupportedMbCountTooHigh;
@@ -222,14 +369,31 @@ pub const Decoder = struct {
 
         var decoder_create_info = std.mem.zeroes(nvdec_bindings.CreateInfo);
         decoder_create_info.CodecType = format.?.codec;
+        if (self.output_format) |output_format| {
+            decoder_create_info.OutputFormat = output_format;
+        } else {
+            switch (format.?.chroma_format) {
+                .@"420", .monochrome => decoder_create_info.OutputFormat = if (format.?.bit_depth_luma_minus8 > 0) .p016 else .nv12,
+                .@"422" => decoder_create_info.OutputFormat = .nv12,
+                .@"444" => decoder_create_info.OutputFormat = if (format.?.bit_depth_luma_minus8 > 0) .yuv444_16bit else .yuv444,
+            }
+            // if (!(decode_caps.nOutputFormatMask & (1 << @intFromEnum(decoder_create_info.OutputFormat)))) {
+            //     if (decode_caps.nOutputFormatMask & (1 << @intFromEnum(nvdec_bindings.VideoSurfaceFormat.nv12))) {
+            //         decoder_create_info.OutputFormat = .nv12;
+            //     } else if (decode_caps.nOutputFormatMask & (1 << @intFromEnum(nvdec_bindings.VideoSurfaceFormat.p016))) {
+            //         decoder_create_info.OutputFormat = .p016;
+            //     } else if (decode_caps.nOutputFormatMask & (1 << @intFromEnum(nvdec_bindings.VideoSurfaceFormat.yuv444))) {
+            //         decoder_create_info.OutputFormat = .yuv444;
+            //     } else if (decode_caps.nOutputFormatMask & (1 << @intFromEnum(nvdec_bindings.VideoSurfaceFormat.yuv444_16bit))) {
+            //         decoder_create_info.OutputFormat = .yuv444_16bit;
+            //     } else {
+            //         return error.ChromaFormatNotSupported;
+            //     }
+            // }
+        }
         decoder_create_info.ChromaFormat = format.?.chroma_format;
-        // // This is what NvDecoder does, it basically mimics the content format.
-        // decoder_create_info.OutputFormat = if (format.bit_depth_luma_minus8 > 0) .p016 else .nv12;
-        // decoder_create_info.bitDepthMinus8 = format.bit_depth_luma_minus8;
-        // force output format nv12
-        decoder_create_info.OutputFormat = .nv12;
-        decoder_create_info.bitDepthMinus8 = 0;
-        decoder_create_info.DeinterlaceMode = .weave;
+        decoder_create_info.bitDepthMinus8 = format.?.bit_depth_luma_minus8;
+        decoder_create_info.DeinterlaceMode = if (format.?.progressive_sequence > 0) .weave else .adaptive;
         // NOTE: NVIDIA docs: "The application gets the final output in one of
         // the ulNumOutputSurfaces surfaces, also called the output surface.
         // The driver performs an internal copy—and postprocessing if
@@ -255,10 +419,11 @@ pub const Decoder = struct {
 
         // frame_dims stores calculated frame dimensions for later when we need them to
         // correctly slice frame data
-        self.surface_info = .{
+        self.format_info = .{
             .frame_width = @intCast(format.?.display_area.right - format.?.display_area.left),
             .frame_height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
             .surface_height = @intCast(format.?.coded_height),
+            .output_format = decoder_create_info.OutputFormat,
         };
 
         self.context.push() catch |err| {
@@ -287,6 +452,8 @@ pub const Decoder = struct {
             return 0;
         };
 
+        std.debug.print("CurrPicIdx: {}\n", .{pic_params.?.CurrPicIdx}); // TODO
+
         return 1;
     }
 
@@ -306,6 +473,10 @@ pub const Decoder = struct {
 
         var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
+        self.context.push() catch |err| {
+            self.error_state = err;
+            return 0;
+        };
         result(nvdec_bindings.cuvidMapVideoFrame64.?(
             self.decoder,
             parser_disp_info.?.picture_index,
@@ -313,6 +484,10 @@ pub const Decoder = struct {
             &frame_pitch,
             &proc_params,
         )) catch |err| {
+            self.error_state = err;
+            return 0;
+        };
+        self.context.pop() catch |err| {
             self.error_state = err;
             return 0;
         };
@@ -332,24 +507,30 @@ pub const Decoder = struct {
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
-        const frame_width = self.surface_info.?.frame_width;
-        const frame_height = self.surface_info.?.frame_height;
-        const surface_height = self.surface_info.?.surface_height;
+        const format = self.format_info.?.output_format;
+        const width = self.format_info.?.frame_width;
+        const height = self.format_info.?.frame_height;
         const pitch: u32 = @intCast(frame_pitch);
-
-        // nv12 is a biplanar format so all we need here is to calculate the offset
-        // to the UV plane (which contains both U and V) using the surface height
-        const uv_offset = surface_height * pitch;
-
+        // Chroma plane offset is always 2 aligned.
+        const chroma_offset = ((self.format_info.?.surface_height + 1) % ~@as(u32, 1)) * pitch;
+        const y = frame_data;
+        const u = frame_data + chroma_offset;
+        const v = switch (format) {
+            // U and V planes are weaved in NV12 and P016 formats so they are the same plane.
+            .nv12, .p016 => u,
+            .yuv444, .yuv444_16bit => u + chroma_offset,
+        };
         const frame = Frame{
             .data = .{
-                .y = frame_data,
-                .uv = frame_data + uv_offset,
+                .y = y,
+                .u = u,
+                .v = v,
             },
+            .format = self.format_info.?.output_format,
             .pitch = @intCast(frame_pitch),
             .dims = .{
-                .width = frame_width,
-                .height = frame_height,
+                .width = width,
+                .height = height,
             },
             .timestamp = @intCast(parser_disp_info.?.timestamp),
         };
@@ -567,4 +748,5 @@ pub const Error = error{
     CodecNotSupported,
     ResolutionNotSupported,
     ResolutionNotSupportedMbCountTooHigh,
+    ChromaFormatNotSupported,
 };

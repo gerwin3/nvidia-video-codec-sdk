@@ -46,6 +46,62 @@ pub const Frame = struct {
     },
 
     timestamp: u64,
+
+    /// Allocate NV12 frame.
+    pub fn alloc(width: u32, height: u32, timestamp: u64) !Frame {
+        const luma_height = height;
+        const chroma_height = height / 2;
+
+        const alloc_info = try cuda.allocPitch(width, luma_height + chroma_height, .element_size_16);
+
+        return Frame{
+            .format = .nv12,
+            .data = alloc_info.ptr,
+            .pitch = @intCast(alloc_info.pitch),
+            .dims = .{
+                .width = width,
+                .height = height,
+            },
+            .timestamp = timestamp,
+        };
+    }
+
+    pub fn free(self: *Frame) void {
+        cuda.free(self.data);
+    }
+
+    /// Copy NV12 data from host to frame on device.
+    /// Luma buffer is expected to be a full resolution image with one byte per pixel.
+    /// Chroma buffer is expected to be a weaved UV plane of half height and full width.
+    pub fn copy_from_host(self: *Frame, buffer: struct { luma: []u8, chroma: []u8 }) !void {
+        std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
+        std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * self.dims.width);
+        // copy Y plane
+        try cuda.copy2D(.{ .host_to_device = .{
+            .src = buffer.luma,
+            .dst = self.data,
+        } }, .{
+            .src_pitch = self.dims.width,
+            .dst_pitch = self.pitch,
+            .dims = .{
+                .width = self.dims.width,
+                .height = self.dims.height,
+            },
+        });
+        // copy UV plane
+        const offset = self.dims.height * self.dims.width;
+        try cuda.copy2D(.{ .host_to_device = .{
+            .src = buffer.chroma,
+            .dst = self.data + offset,
+        } }, .{
+            .src_pitch = self.dims.width,
+            .dst_pitch = self.pitch,
+            .dims = .{
+                .width = self.dims.width,
+                .height = self.dims.height / 2,
+            },
+        });
+    }
 };
 
 pub const H264Format = enum {

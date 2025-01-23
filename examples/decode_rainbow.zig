@@ -7,15 +7,8 @@ const nvdec = @import("nvdec");
 const width = 1920;
 const height = 1080;
 
-const y_plane_width = width;
-const y_plane_height = height;
-const uv_plane_width = width;
-const uv_plane_height = height / 2;
-
-var frame_buffer: ?struct {
-    y: []u8,
-    uv: []u8,
-} = null;
+var frame_buffer_luma: ?[]u8 = null;
+var frame_buffer_chroma: ?[]u8 = null;
 
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -23,14 +16,11 @@ pub fn main() !void {
 
     const allocator = general_purpose_allocator.allocator();
 
-    frame_buffer = .{
-        .y = try allocator.alloc(u8, y_plane_width * y_plane_height),
-        .uv = try allocator.alloc(u8, uv_plane_width * uv_plane_height),
-    };
-    defer {
-        allocator.free(frame_buffer.?.y);
-        allocator.free(frame_buffer.?.uv);
-    }
+    frame_buffer_luma = try allocator.alloc(u8, height * width);
+    defer allocator.free(frame_buffer_luma.?);
+
+    frame_buffer_chroma = try allocator.alloc(u8, height / 2 * width);
+    defer allocator.free(frame_buffer_chroma.?);
 
     try nvdec.cuda.load();
     try nvdec.cuda.init();
@@ -39,7 +29,7 @@ pub fn main() !void {
     var context = try nvdec.cuda.Context.init(0);
     defer context.deinit();
 
-    var decoder = try nvdec.Decoder.create(&context, .{ .codec = .h264 }, allocator);
+    var decoder = try nvdec.Decoder.create(&context, .{ .codec = .h264, .output_format = .nv12 }, allocator);
     defer decoder.destroy();
 
     const file = try std.fs.cwd().openFile("rainbow.264", .{});
@@ -63,6 +53,7 @@ pub fn main() !void {
                     nal.appendSlice(buffer[last_nal..index]) catch @panic("oom");
                 }
                 if (nal.items.len > 0) {
+                    std.debug.print("nal: {any},{}\n", .{ nal.items[0..@min(10, nal.items.len)], nal.items.len }); // TODO
                     if (try decoder.decode(nal.items)) |frame| {
                         try handle_frame(decoder.context, &frame);
                     }
@@ -90,46 +81,18 @@ pub fn main() !void {
 
 /// Print YUV values of the frame.
 fn handle_frame(cuda_context: *nvdec.cuda.Context, frame: *const nvdec.Frame) !void {
+    std.debug.assert(frame.format == .nv12);
     std.debug.assert(frame.dims.width == width);
     std.debug.assert(frame.dims.height == height);
 
     try cuda_context.push();
-
-    try nvdec.cuda.copy2D(
-        .{ .device_to_host = .{
-            .src = frame.data.y,
-            .dst = frame_buffer.?.y,
-        } },
-        .{
-            .src_pitch = frame.pitch,
-            .dst_pitch = y_plane_width,
-            .dims = .{
-                .width = y_plane_width,
-                .height = y_plane_height,
-            },
-        },
-    );
-
-    try nvdec.cuda.copy2D(
-        .{ .device_to_host = .{
-            .src = frame.data.uv,
-            .dst = frame_buffer.?.uv,
-        } },
-        .{
-            .src_pitch = frame.pitch,
-            .dst_pitch = uv_plane_width,
-            .dims = .{
-                .width = uv_plane_width,
-                .height = uv_plane_height,
-            },
-        },
-    );
-
-    std.debug.print("yuv = ({}, {}, {})\n", .{
-        frame_buffer.?.y[0],
-        frame_buffer.?.uv[0],
-        frame_buffer.?.uv[1],
-    });
-
+    try frame.copy_to_host(.{ .luma = frame_buffer_luma.?, .chroma = frame_buffer_chroma.? });
     try cuda_context.pop();
+
+    std.debug.print(">>>>>>>>>>>>>>>>>>>yuv = ({}, {}, {})\n", .{
+        //std.debug.print("yuv = ({}, {}, {})\n", .{
+        frame_buffer_luma.?[0],
+        frame_buffer_chroma.?[0],
+        frame_buffer_chroma.?[1],
+    });
 }
