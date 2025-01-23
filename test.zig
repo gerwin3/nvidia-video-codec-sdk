@@ -5,6 +5,7 @@ const nvenc = @import("nvenc");
 const nvdec = @import("nvdec");
 
 test "default config h264 full hd" {
+    // TODO: Force format (?)
     try test_encoder_decoder(.{
         .codec = .{ .h264 = .{} },
         .resolution = .{ .width = 1920, .height = 1080 },
