@@ -17,9 +17,9 @@ pub const Format = nvdec_bindings.VideoSurfaceFormat;
 /// Important: The data is stored on device and cannot be accessed directly.
 pub const Frame = struct {
     data: struct {
-        y: cuda.DevicePtr,
-        u: cuda.DevicePtr,
-        v: cuda.DevicePtr,
+        luma: cuda.DevicePtr,
+        chroma: cuda.DevicePtr,
+        chroma2: ?cuda.DevicePtr,
     },
     format: Format,
 
@@ -57,10 +57,10 @@ pub const Frame = struct {
             .nv12 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
                 std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * self.dims.width);
-                std.debug.assert(buffer.chroma2 == null);
+                std.debug.assert(self.data.chroma2 == null and buffer.chroma2 == null);
                 // copy Y plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.y,
+                    .src = self.data.luma,
                     .dst = buffer.luma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -69,7 +69,7 @@ pub const Frame = struct {
                 });
                 // copy UV plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.u,
+                    .src = self.data.chroma,
                     .dst = buffer.chroma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -80,10 +80,10 @@ pub const Frame = struct {
             .p016 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
                 std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * (self.dims.width * 2));
-                std.debug.assert(buffer.chroma2 == null);
+                std.debug.assert(self.data.chroma2 == null and buffer.chroma2 == null);
                 // copy Y plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.y,
+                    .src = self.data.luma,
                     .dst = buffer.luma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -92,7 +92,7 @@ pub const Frame = struct {
                 });
                 // copy UV plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.u,
+                    .src = self.data.chroma,
                     .dst = buffer.chroma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -106,7 +106,7 @@ pub const Frame = struct {
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width);
                 // copy Y plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.y,
+                    .src = self.data.luma,
                     .dst = buffer.luma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -115,7 +115,7 @@ pub const Frame = struct {
                 });
                 // copy U plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.u,
+                    .src = self.data.chroma,
                     .dst = buffer.chroma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -124,7 +124,7 @@ pub const Frame = struct {
                 });
                 // copy V plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.v,
+                    .src = self.data.chroma2,
                     .dst = buffer.chroma2.?,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -138,7 +138,7 @@ pub const Frame = struct {
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width * 2);
                 // copy Y plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.y,
+                    .src = self.data.luma,
                     .dst = buffer.luma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -147,7 +147,7 @@ pub const Frame = struct {
                 });
                 // copy U plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.u,
+                    .src = self.data.chroma,
                     .dst = buffer.chroma,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -156,7 +156,7 @@ pub const Frame = struct {
                 });
                 // copy V plane
                 try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.v,
+                    .src = self.data.chroma2,
                     .dst = buffer.chroma2.?,
                 } }, .{
                     .src_pitch = self.pitch,
@@ -251,7 +251,7 @@ pub const Decoder = struct {
 
         // Unmap any remaining video frames in buffer.
         while (self.output_buffer.readItem()) |frame| {
-            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame.data.y)) catch unreachable;
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame.data.luma)) catch unreachable;
         }
 
         if (self.parser != null) result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
@@ -272,8 +272,8 @@ pub const Decoder = struct {
         }
 
         if (self.output_buffer.readItem()) |frame| {
-            self.cur_frame_data = frame.data.y;
-            std.debug.print("cur_frame: {}\n", .{frame.data.y}); // TODO
+            self.cur_frame_data = frame.data.luma;
+            std.debug.print("cur_frame: {}\n", .{frame.data.luma}); // TODO
             return frame;
         }
 
@@ -298,8 +298,8 @@ pub const Decoder = struct {
         }
 
         if (self.output_buffer.readItem()) |frame| {
-            self.cur_frame_data = frame.data.y;
-            std.debug.print("cur_frame: {}\n", .{frame.data.y}); // TODO
+            self.cur_frame_data = frame.data.luma;
+            std.debug.print("cur_frame: {}\n", .{frame.data.luma}); // TODO
             return frame;
         } else {
             return null;
@@ -512,19 +512,17 @@ pub const Decoder = struct {
         const height = self.format_info.?.frame_height;
         const pitch: u32 = @intCast(frame_pitch);
         // Chroma plane offset is always 2 aligned.
-        const chroma_offset = ((self.format_info.?.surface_height + 1) % ~@as(u32, 1)) * pitch;
-        const y = frame_data;
-        const u = frame_data + chroma_offset;
-        const v = switch (format) {
-            // U and V planes are weaved in NV12 and P016 formats so they are the same plane.
-            .nv12, .p016 => u,
-            .yuv444, .yuv444_16bit => u + chroma_offset,
-        };
+        const offset = ((self.format_info.?.surface_height + 1) % ~@as(u32, 1)) * pitch;
         const frame = Frame{
             .data = .{
-                .y = y,
-                .u = u,
-                .v = v,
+                .luma = frame_data,
+                .chroma = frame_data + offset,
+                .chroma2 = switch (format) {
+                    .yuv444, .yuv444_16bit => frame_data + offset + offset,
+                    // U and V planes are weaved in NV12 and P016 formats so
+                    // there is no second chroma plane.
+                    else => null,
+                },
             },
             .format = self.format_info.?.output_format,
             .pitch = @intCast(frame_pitch),

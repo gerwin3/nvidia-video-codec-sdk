@@ -682,7 +682,7 @@ pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*Creat
 pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) Result = null;
 pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result = null;
 pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
-pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result = null;
+pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: ?*cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result = null;
 pub var cuvidUnmapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, DevPtr: cuda_bindings.DevicePtr) Result = null;
 pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: cuda_bindings.Context) Result = null;
 pub var cuvidCtxLockDestroy: ?*const fn (lck: VideoCtxLock) Result = null;

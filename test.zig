@@ -291,7 +291,7 @@ fn test_expected_frame(
     try context.push();
     try nvdec.cuda.copy2D(
         .{ .device_to_host = .{
-            .src = out_frame.data.y,
+            .src = out_frame.data.luma,
             .dst = out_frame_buffer.y,
         } },
         .{
