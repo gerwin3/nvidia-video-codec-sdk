@@ -9,11 +9,6 @@ const rainbow_num_frames = 256;
 const width = 1920;
 const height = 1080;
 
-// const y_plane_width = width;
-// const y_plane_height = height;
-// const uv_plane_width = width;
-// const uv_plane_height = height / 2;
-
 pub fn main() !void {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer std.debug.assert(general_purpose_allocator.deinit() == .ok);

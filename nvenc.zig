@@ -89,7 +89,7 @@ pub const Frame = struct {
             },
         });
         // copy UV plane
-        const offset = self.dims.height * self.dims.width;
+        const offset = self.dims.height * self.pitch;
         try cuda.copy2D(.{ .host_to_device = .{
             .src = buffer.chroma,
             .dst = self.data + offset,
