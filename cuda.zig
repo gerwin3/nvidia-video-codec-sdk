@@ -2,8 +2,6 @@ const std = @import("std");
 
 const cuda_bindings = @import("cuda_bindings");
 
-const cuda_log = std.log.scoped(.cuda_log);
-
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub const load = cuda_bindings.load;
 

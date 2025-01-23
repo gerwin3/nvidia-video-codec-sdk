@@ -206,14 +206,17 @@ pub const Decoder = struct {
 
         if (decode_caps.bIsSupported == 0) {
             nvdec_log.err("codec not supported (codec = {})", .{decode_caps.eCodecType});
+            self.error_state = error.CodecNotSupported;
             return 0;
         }
         if (format.?.coded_width > decode_caps.nMaxWidth or format.?.coded_height > decode_caps.nMaxHeight) {
             nvdec_log.err("resolution not supported (max resolution = {}x{})", .{ decode_caps.nMaxWidth, decode_caps.nMaxHeight });
+            self.error_state = error.ResolutionNotSupported;
             return 0;
         }
         if (((format.?.coded_width >> 4) * (format.?.coded_height >> 4)) > decode_caps.nMaxMBCount) {
             nvdec_log.err("MB count too high (max MB count = {})", .{decode_caps.nMaxMBCount});
+            self.error_state = error.ResolutionNotSupportedMbCountTooHigh;
             return 0;
         }
 
@@ -560,4 +563,8 @@ pub const Error = error{
     InvalidResourceType,
     InvalidResourceConfiguration,
     Unknown,
-} || cuda.Error;
+} || cuda.Error || error{
+    CodecNotSupported,
+    ResolutionNotSupported,
+    ResolutionNotSupportedMbCountTooHigh,
+};

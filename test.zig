@@ -189,12 +189,12 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
 
     var bitstream = std.ArrayList(u8).init(allocator);
     defer bitstream.deinit();
-    const bitstream_writer = bitstream.writer();
+    // const bitstream_writer = bitstream.writer();
 
-    // // TODO
-    // const file = try std.fs.cwd().createFile("rainbow.264", .{});
-    // defer file.close();
-    // const writer2 = file.writer();
+    // TODO
+    const file = try std.fs.cwd().createFile("test.264", .{});
+    defer file.close();
+    const bitstream_writer = file.writer();
 
     var test_frames = TestFrameIterator.init(num_frames);
     while (test_frames.next()) |test_frame| {

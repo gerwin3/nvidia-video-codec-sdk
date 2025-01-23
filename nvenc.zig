@@ -2,8 +2,6 @@ const std = @import("std");
 
 const nvenc_bindings = @import("nvenc_bindings");
 
-const nvenc_log = std.log.scoped(.nvenc_log);
-
 pub const cuda = @import("cuda");
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
@@ -347,9 +345,7 @@ pub const Encoder = struct {
         }
         self.allocator.free(self.io_buffer_items);
 
-        status(nvenc_bindings.nvEncDestroyEncoder.?(self.encoder)) catch |err| {
-            nvenc_log.err("failed to destroy encoder (err = {})", .{err});
-        };
+        status(nvenc_bindings.nvEncDestroyEncoder.?(self.encoder)) catch unreachable;
     }
 
     /// Frame is valid until next call to decode, flush or deinit.
