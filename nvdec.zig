@@ -53,116 +53,49 @@ pub const Frame = struct {
         // please do not do it! Caveman function does the job and is very easy
         // to reason about!
 
+        const impl = struct {
+            fn copy_plane(src: cuda.DevicePtr, dst: []u8, src_pitch: u32, width: u32, height: u32) !void {
+                try cuda.copy2D(
+                    .{ .device_to_host = .{ .src = src, .dst = dst } },
+                    .{
+                        .src_pitch = src_pitch,
+                        .dst_pitch = width,
+                        .dims = .{ .width = width, .height = height },
+                    },
+                );
+            }
+        };
+
         switch (self.format) {
             .nv12 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
                 std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * self.dims.width);
                 std.debug.assert(self.data.chroma2 == null and buffer.chroma2 == null);
-                // copy Y plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.luma,
-                    .dst = buffer.luma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width,
-                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
-                });
-                // copy UV plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma,
-                    .dst = buffer.chroma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width,
-                    .dims = .{ .width = self.dims.width, .height = self.dims.height / 2 },
-                });
+                try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width, self.dims.height);
+                try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width, self.dims.height / 2);
             },
             .p016 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
                 std.debug.assert(buffer.chroma.len == (self.dims.height / 2) * (self.dims.width * 2));
                 std.debug.assert(self.data.chroma2 == null and buffer.chroma2 == null);
-                // copy Y plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.luma,
-                    .dst = buffer.luma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width * 2,
-                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
-                });
-                // copy UV plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma,
-                    .dst = buffer.chroma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width * 2,
-                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height / 2 },
-                });
+                try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width * 2, self.dims.height);
+                try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width * 2, self.dims.height / 2);
             },
             .yuv444 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
                 std.debug.assert(buffer.chroma.len == self.dims.height * self.dims.width);
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width);
-                // copy Y plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.luma,
-                    .dst = buffer.luma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width,
-                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
-                });
-                // copy U plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma,
-                    .dst = buffer.chroma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width,
-                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
-                });
-                // copy V plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma2,
-                    .dst = buffer.chroma2.?,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width,
-                    .dims = .{ .width = self.dims.width, .height = self.dims.height },
-                });
+                try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width, self.dims.height);
+                try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width, self.dims.height);
+                try impl.copy_plane(self.data.chroma2, buffer.chroma2.?, self.pitch, self.dims.width, self.dims.height);
             },
             .yuv444_16bit => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
                 std.debug.assert(buffer.chroma.len == self.dims.height * self.dims.width * 2);
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width * 2);
-                // copy Y plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.luma,
-                    .dst = buffer.luma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width * 2,
-                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
-                });
-                // copy U plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma,
-                    .dst = buffer.chroma,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width * 2,
-                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
-                });
-                // copy V plane
-                try cuda.copy2D(.{ .device_to_host = .{
-                    .src = self.data.chroma2,
-                    .dst = buffer.chroma2.?,
-                } }, .{
-                    .src_pitch = self.pitch,
-                    .dst_pitch = self.dims.width * 2,
-                    .dims = .{ .width = self.dims.width * 2, .height = self.dims.height },
-                });
+                try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width * 2, self.dims.height);
+                try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width * 2, self.dims.height);
+                try impl.copy_plane(self.data.chroma2, buffer.chroma2.?, self.pitch, self.dims.width * 2, self.dims.height);
             },
         }
     }
