@@ -87,7 +87,7 @@ pub const Frame = struct {
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width);
                 try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width, self.dims.height);
                 try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width, self.dims.height);
-                try impl.copy_plane(self.data.chroma2, buffer.chroma2.?, self.pitch, self.dims.width, self.dims.height);
+                try impl.copy_plane(self.data.chroma2.?, buffer.chroma2.?, self.pitch, self.dims.width, self.dims.height);
             },
             .yuv444_16bit => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width * 2);
@@ -95,7 +95,7 @@ pub const Frame = struct {
                 std.debug.assert(buffer.chroma2.?.len == self.dims.height * self.dims.width * 2);
                 try impl.copy_plane(self.data.luma, buffer.luma, self.pitch, self.dims.width * 2, self.dims.height);
                 try impl.copy_plane(self.data.chroma, buffer.chroma, self.pitch, self.dims.width * 2, self.dims.height);
-                try impl.copy_plane(self.data.chroma2, buffer.chroma2.?, self.pitch, self.dims.width * 2, self.dims.height);
+                try impl.copy_plane(self.data.chroma2.?, buffer.chroma2.?, self.pitch, self.dims.width * 2, self.dims.height);
             },
         }
     }
