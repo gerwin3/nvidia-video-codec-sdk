@@ -331,7 +331,8 @@ pub const Decoder = struct {
         self.format_info = .{
             .frame_width = @intCast(format.display_area.right - format.display_area.left),
             .frame_height = @intCast(format.display_area.bottom - format.display_area.top),
-            .surface_height = @intCast(format.coded_height),
+            // surface height (chroma offset) is always 2-aligned
+            .surface_height = @intCast(format.coded_height + (format.coded_height % 2)),
             .output_format = decoder_create_info.OutputFormat,
         };
 
@@ -386,7 +387,7 @@ pub const Decoder = struct {
         const height = format_info.frame_height;
         const pitch: u32 = @intCast(frame_pitch);
         // Chroma plane offset is always 2 aligned.
-        const offset = ((format_info.surface_height + 1) % ~@as(u32, 1)) * pitch;
+        const offset = format_info.surface_height * pitch;
         const frame = Frame{
             .data = .{
                 .luma = frame_data,
@@ -399,7 +400,7 @@ pub const Decoder = struct {
                 },
             },
             .format = format_info.output_format,
-            .pitch = @intCast(frame_pitch),
+            .pitch = pitch,
             .dims = .{ .width = width, .height = height },
             .timestamp = @intCast(parser_disp_info.timestamp),
         };

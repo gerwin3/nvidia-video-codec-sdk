@@ -369,10 +369,7 @@ pub const Encoder = struct {
             var create_bitstream_buffer = std.mem.zeroes(nvenc_bindings.CreateBitstreamBuffer);
             create_bitstream_buffer.version = nvenc_bindings.create_bitstream_buffer_ver;
             try status(nvenc_bindings.nvEncCreateBitstreamBuffer.?(encoder, &create_bitstream_buffer));
-            item.* = .{
-                .input_registered_resource = null,
-                .output_bitstream = create_bitstream_buffer.bitstreamBuffer,
-            };
+            item.* = .{ .output_bitstream = create_bitstream_buffer.bitstreamBuffer };
         }
 
         // TODO: perf: Use nvEncSetIOCudaStreams to assign CUDA streams.
@@ -389,9 +386,11 @@ pub const Encoder = struct {
     pub fn deinit(self: *Encoder) void {
         self.allocator.free(self.parameter_sets);
 
-        // User must flush encoder before deinit. If the buffer has items still
-        // it means the user did not flush properly.
-        std.debug.assert(self.io_buffer.empty());
+        while (self.io_buffer.pop()) |input_output_pair| {
+            if (input_output_pair.input_mapped_resource) |mapped_resource| status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, mapped_resource)) catch unreachable;
+            if (input_output_pair.input_registered_resource) |registered_resource| status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, registered_resource)) catch unreachable;
+            status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, input_output_pair.output_bitstream)) catch unreachable;
+        }
 
         for (self.io_buffer_items) |*item| {
             status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(self.encoder, item.output_bitstream)) catch unreachable;
@@ -431,15 +430,21 @@ pub const Encoder = struct {
         register_resource.pitch = frame.pitch;
         register_resource.bufferFormat = buffer_format;
         try status(nvenc_bindings.nvEncRegisterResource.?(self.encoder, &register_resource));
-        errdefer status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, register_resource.registeredResource)) catch unreachable;
         input_output_pair.input_registered_resource = register_resource.registeredResource;
+        errdefer {
+            status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, register_resource.registeredResource)) catch unreachable;
+            input_output_pair.input_registered_resource = null;
+        }
 
         var map_input_resource = std.mem.zeroes(nvenc_bindings.MapInputResource);
         map_input_resource.version = nvenc_bindings.map_input_resource_ver;
         map_input_resource.registeredResource = register_resource.registeredResource;
         try status(nvenc_bindings.nvEncMapInputResource.?(self.encoder, &map_input_resource));
-        errdefer status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, map_input_resource.mappedResource)) catch unreachable;
         input_output_pair.input_mapped_resource = map_input_resource.mappedResource;
+        errdefer {
+            status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, map_input_resource.mappedResource)) catch unreachable;
+            input_output_pair.input_mapped_resource = null;
+        }
 
         var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
         pic_params.version = nvenc_bindings.pic_params_ver;
@@ -475,7 +480,9 @@ pub const Encoder = struct {
     fn drain(self: *Encoder, writer: anytype) !void {
         while (self.io_buffer.pop()) |input_output_pair| {
             status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, input_output_pair.input_mapped_resource)) catch unreachable;
+            input_output_pair.input_mapped_resource = null;
             status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, input_output_pair.input_registered_resource)) catch unreachable;
+            input_output_pair.input_registered_resource = null;
 
             var lock_bitstream = std.mem.zeroes(nvenc_bindings.LockBitstream);
             lock_bitstream.version = nvenc_bindings.lock_bitstream_ver;
