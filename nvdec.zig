@@ -48,11 +48,6 @@ pub const Frame = struct {
     ) !void {
         // TODO: I have not really tested this except for the common NV12 case...
 
-        // Anyone thinking "I can refactor this by just introducing a couple of
-        // handy functions like get_luma_height(), get_chroma_width(), etc."
-        // please do not do it! Caveman function does the job and is very easy
-        // to reason about!
-
         const impl = struct {
             fn copy_plane(src: cuda.DevicePtr, dst: []u8, src_pitch: u32, width: u32, height: u32) !void {
                 try cuda.copy2D(
@@ -66,6 +61,10 @@ pub const Frame = struct {
             }
         };
 
+        // Anyone thinking "I can refactor this by just introducing a couple of
+        // handy functions like get_luma_height(), get_chroma_width(), etc."
+        // please do not do it! Caveman function does the job and is very easy
+        // to reason about!
         switch (self.format) {
             .nv12 => {
                 std.debug.assert(buffer.luma.len == self.dims.height * self.dims.width);
@@ -164,9 +163,9 @@ pub const Decoder = struct {
         parser_params.ulMaxNumDecodeSurfaces = 1;
         parser_params.ulMaxDisplayDelay = 0; // always low-latency
         parser_params.pUserData = self;
-        parser_params.pfnSequenceCallback = handleSequenceCallback;
-        parser_params.pfnDecodePicture = handleDecodePicture;
-        parser_params.pfnDisplayPicture = handleDisplayPicture;
+        parser_params.pfnSequenceCallback = handle_sequence_callback_passthrough;
+        parser_params.pfnDecodePicture = handle_decode_picture_passthrough;
+        parser_params.pfnDisplayPicture = handle_display_picture_passthrough;
         try result(nvdec_bindings.cuvidCreateVideoParser.?(&self.parser, &parser_params));
         errdefer result(nvdec_bindings.cuvidDestroyVideoParser.?(self.parser)) catch unreachable;
 
@@ -245,19 +244,12 @@ pub const Decoder = struct {
         return self.decode(&.{});
     }
 
-    fn handleSequenceCallback(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
-        var self: *Decoder = @ptrCast(@alignCast(context));
-
-        if (self.error_state != null) return 0;
-
-        // self.decoder != null means handleSequenceCallback was called before,
-        // which means the deocder wants to recongfigure which is not implemented
-        // at this time
-        if (self.decoder != null) return 0;
+    fn handle_sequence_callback(self: *Decoder, format: *nvdec_bindings.VideoFormat) !c_int {
+        if (self.decoder != null) return error.DecoderReconfigurationNotSupported;
 
         // roughly similar to NvDecoder:
         // https://github.com/NVIDIA/video-sdk-samples/blob/aa3544dcea2fe63122e4feb83bf805ea40e58dbe/Samples/NvCodec/NvDecoder/NvDecoder.cpp#L93
-        const num_decode_surfaces: c_int = switch (format.?.codec) {
+        const num_decode_surfaces: c_int = switch (format.codec) {
             .vp9 => 12,
             .h264, .h264_mvc, .h264_svc => 20,
             .hevc => 20,
@@ -265,50 +257,38 @@ pub const Decoder = struct {
         };
 
         var decode_caps = std.mem.zeroes(nvdec_bindings.DecodeCaps);
-        decode_caps.eCodecType = format.?.codec;
-        decode_caps.eChromaFormat = format.?.chroma_format;
-        decode_caps.nBitDepthMinus8 = format.?.bit_depth_luma_minus8;
+        decode_caps.eCodecType = format.codec;
+        decode_caps.eChromaFormat = format.chroma_format;
+        decode_caps.nBitDepthMinus8 = format.bit_depth_luma_minus8;
 
-        self.context.push() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps)) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        self.context.pop() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
+        try self.context.push();
+        try result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps));
+        try self.context.pop();
 
         if (decode_caps.bIsSupported == 0) {
             nvdec_log.err("codec not supported (codec = {})", .{decode_caps.eCodecType});
-            self.error_state = error.CodecNotSupported;
-            return 0;
+            return error.CodecNotSupported;
         }
 
-        if (format.?.coded_width > decode_caps.nMaxWidth or format.?.coded_height > decode_caps.nMaxHeight) {
+        if (format.coded_width > decode_caps.nMaxWidth or format.coded_height > decode_caps.nMaxHeight) {
             nvdec_log.err("resolution not supported (max resolution = {}x{})", .{ decode_caps.nMaxWidth, decode_caps.nMaxHeight });
-            self.error_state = error.ResolutionNotSupported;
-            return 0;
+            return error.ResolutionNotSupported;
         }
 
-        if (((format.?.coded_width >> 4) * (format.?.coded_height >> 4)) > decode_caps.nMaxMBCount) {
+        if (((format.coded_width >> 4) * (format.coded_height >> 4)) > decode_caps.nMaxMBCount) {
             nvdec_log.err("MB count too high (max MB count = {})", .{decode_caps.nMaxMBCount});
-            self.error_state = error.ResolutionNotSupportedMbCountTooHigh;
-            return 0;
+            return error.ResolutionNotSupportedMbCountTooHigh;
         }
 
         var decoder_create_info = std.mem.zeroes(nvdec_bindings.CreateInfo);
-        decoder_create_info.CodecType = format.?.codec;
+        decoder_create_info.CodecType = format.codec;
         if (self.output_format) |output_format| {
             decoder_create_info.OutputFormat = output_format;
         } else {
-            switch (format.?.chroma_format) {
-                .@"420", .monochrome => decoder_create_info.OutputFormat = if (format.?.bit_depth_luma_minus8 > 0) .p016 else .nv12,
+            switch (format.chroma_format) {
+                .@"420", .monochrome => decoder_create_info.OutputFormat = if (format.bit_depth_luma_minus8 > 0) .p016 else .nv12,
                 .@"422" => decoder_create_info.OutputFormat = .nv12,
-                .@"444" => decoder_create_info.OutputFormat = if (format.?.bit_depth_luma_minus8 > 0) .yuv444_16bit else .yuv444,
+                .@"444" => decoder_create_info.OutputFormat = if (format.bit_depth_luma_minus8 > 0) .yuv444_16bit else .yuv444,
             }
             // if (!(decode_caps.nOutputFormatMask & (1 << @intFromEnum(decoder_create_info.OutputFormat)))) {
             //     if (decode_caps.nOutputFormatMask & (1 << @intFromEnum(nvdec_bindings.VideoSurfaceFormat.nv12))) {
@@ -324,9 +304,9 @@ pub const Decoder = struct {
             //     }
             // }
         }
-        decoder_create_info.ChromaFormat = format.?.chroma_format;
-        decoder_create_info.bitDepthMinus8 = format.?.bit_depth_luma_minus8;
-        decoder_create_info.DeinterlaceMode = if (format.?.progressive_sequence > 0) .weave else .adaptive;
+        decoder_create_info.ChromaFormat = format.chroma_format;
+        decoder_create_info.bitDepthMinus8 = format.bit_depth_luma_minus8;
+        decoder_create_info.DeinterlaceMode = if (format.progressive_sequence > 0) .weave else .adaptive;
         // NOTE: NVIDIA docs: "The application gets the final output in one of
         // the ulNumOutputSurfaces surfaces, also called the output surface.
         // The driver performs an internal copy—and postprocessing if
@@ -343,109 +323,75 @@ pub const Decoder = struct {
         decoder_create_info.ulCreationFlags = nvdec_bindings.create_flags.prefer_CUVID;
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
         // decoder_create_info.vidLock = lock;
-        decoder_create_info.ulWidth = format.?.coded_width;
-        decoder_create_info.ulHeight = format.?.coded_height;
+        decoder_create_info.ulWidth = format.coded_width;
+        decoder_create_info.ulHeight = format.coded_height;
         decoder_create_info.ulMaxWidth = 0;
         decoder_create_info.ulMaxHeight = 0;
-        decoder_create_info.ulTargetWidth = format.?.coded_width;
-        decoder_create_info.ulTargetHeight = format.?.coded_height;
+        decoder_create_info.ulTargetWidth = format.coded_width;
+        decoder_create_info.ulTargetHeight = format.coded_height;
 
         // frame_dims stores calculated frame dimensions for later when we need them to
         // correctly slice frame data
         self.format_info = .{
-            .frame_width = @intCast(format.?.display_area.right - format.?.display_area.left),
-            .frame_height = @intCast(format.?.display_area.bottom - format.?.display_area.top),
-            .surface_height = @intCast(format.?.coded_height),
+            .frame_width = @intCast(format.display_area.right - format.display_area.left),
+            .frame_height = @intCast(format.display_area.bottom - format.display_area.top),
+            .surface_height = @intCast(format.coded_height),
             .output_format = decoder_create_info.OutputFormat,
         };
 
-        self.context.push() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info)) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        self.context.pop() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
+        try self.context.push();
+        try result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info));
+        try self.context.pop();
 
         return num_decode_surfaces;
     }
 
-    fn handleDecodePicture(context: ?*anyopaque, pic_params: ?*nvdec_bindings.PicParams) callconv(.C) c_int {
-        const self: *Decoder = @ptrCast(@alignCast(context));
-
-        if (self.error_state != null) return 0;
-
-        result(nvdec_bindings.cuvidDecodePicture.?(self.decoder, pic_params)) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-
-        std.debug.print("CurrPicIdx: {}\n", .{pic_params.?.CurrPicIdx}); // TODO
-
-        return 1;
+    fn handle_decode_picture(self: *Decoder, pic_params: *nvdec_bindings.PicParams) !void {
+        try result(nvdec_bindings.cuvidDecodePicture.?(self.decoder, pic_params));
+        // std.debug.print("CurrPicIdx: {}\n", .{pic_params.?.CurrPicIdx}); // TODO
     }
 
-    fn handleDisplayPicture(context: ?*anyopaque, parser_disp_info: ?*nvdec_bindings.ParserDispInfo) callconv(.C) c_int {
-        var self: *Decoder = @ptrCast(@alignCast(context));
-
-        if (self.error_state != null) return 0;
-
+    fn handle_display_picture(self: *Decoder, parser_disp_info: *nvdec_bindings.ParserDispInfo) !void {
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
-        proc_params.progressive_frame = parser_disp_info.?.progressive_frame;
-        proc_params.second_field = parser_disp_info.?.repeat_first_field + 1;
-        proc_params.top_field_first = parser_disp_info.?.top_field_first;
-        proc_params.unpaired_field = if (parser_disp_info.?.repeat_first_field < 0) 1 else 0;
+        proc_params.progressive_frame = parser_disp_info.progressive_frame;
+        proc_params.second_field = parser_disp_info.repeat_first_field + 1;
+        proc_params.top_field_first = parser_disp_info.top_field_first;
+        proc_params.unpaired_field = if (parser_disp_info.repeat_first_field < 0) 1 else 0;
         // TODO: By leaving this uncommented we are defaulting to the global stream which
         // is not ideal especially in multi-decoder situations.
         // proc_params.output_stream = m_cuvidStream;
 
         var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
-        self.context.push() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        result(nvdec_bindings.cuvidMapVideoFrame64.?(
+        try self.context.push();
+        try result(nvdec_bindings.cuvidMapVideoFrame64.?(
             self.decoder,
-            parser_disp_info.?.picture_index,
+            parser_disp_info.picture_index,
             &frame_data,
             &frame_pitch,
             &proc_params,
-        )) catch |err| {
-            self.error_state = err;
-            return 0;
-        };
-        self.context.pop() catch |err| {
-            self.error_state = err;
-            return 0;
-        };
+        ));
+        try self.context.pop();
         errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
         std.debug.assert(frame_data != 0);
-        std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.?.picture_index }); // TODO
+
+        std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.picture_index }); // TODO
 
         // NOTE: Doing this after mapping operation since NvDecoder does it
         // too, probably for good reasons.
         var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
-        result(nvdec_bindings.cuvidGetDecodeStatus.?(
-            self.decoder,
-            parser_disp_info.?.picture_index,
-            &get_decode_status,
-        )) catch unreachable;
+        result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.picture_index, &get_decode_status)) catch unreachable;
 
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
-        const format = self.format_info.?.output_format;
-        const width = self.format_info.?.frame_width;
-        const height = self.format_info.?.frame_height;
+        const format_info = self.format_info.?;
+        const format = format_info.output_format;
+        const width = format_info.frame_width;
+        const height = format_info.frame_height;
         const pitch: u32 = @intCast(frame_pitch);
         // Chroma plane offset is always 2 aligned.
-        const offset = ((self.format_info.?.surface_height + 1) % ~@as(u32, 1)) * pitch;
+        const offset = ((format_info.surface_height + 1) % ~@as(u32, 1)) * pitch;
         const frame = Frame{
             .data = .{
                 .luma = frame_data,
@@ -457,23 +403,57 @@ pub const Decoder = struct {
                     else => null,
                 },
             },
-            .format = self.format_info.?.output_format,
+            .format = format_info.output_format,
             .pitch = @intCast(frame_pitch),
             .dims = .{
                 .width = width,
                 .height = height,
             },
-            .timestamp = @intCast(parser_disp_info.?.timestamp),
+            .timestamp = @intCast(parser_disp_info.timestamp),
         };
 
         // NOTE: If this unreachable ever hits it means that my assumption that
         // NVDEC will never buffer more than 4 frames for dispatch at a time is
         // incorrect. Increase num output surfaces (buffer size) as needed.
         self.output_buffer.writeItem(frame) catch unreachable;
-
-        return 1;
     }
 };
+
+fn handle_sequence_callback_passthrough(context: ?*anyopaque, format: ?*nvdec_bindings.VideoFormat) callconv(.C) c_int {
+    var self: *Decoder = @ptrCast(@alignCast(context));
+
+    if (self.error_state != null) return 0;
+
+    const ret = self.handle_sequence_callback(format.?) catch |err| {
+        self.error_state = err;
+        return 0;
+    };
+    return ret;
+}
+
+fn handle_decode_picture_passthrough(context: ?*anyopaque, pic_params: ?*nvdec_bindings.PicParams) callconv(.C) c_int {
+    var self: *Decoder = @ptrCast(@alignCast(context));
+
+    if (self.error_state != null) return 0;
+
+    self.handle_decode_picture(pic_params.?) catch |err| {
+        self.error_state = err;
+        return 0;
+    };
+    return 1;
+}
+
+fn handle_display_picture_passthrough(context: ?*anyopaque, parser_disp_info: ?*nvdec_bindings.ParserDispInfo) callconv(.C) c_int {
+    var self: *Decoder = @ptrCast(@alignCast(context));
+
+    if (self.error_state != null) return 0;
+
+    self.handle_display_picture(parser_disp_info.?) catch |err| {
+        self.error_state = err;
+        return 0;
+    };
+    return 1;
+}
 
 fn result(ret: nvdec_bindings.Result) Error!void {
     switch (ret) {
@@ -676,6 +656,7 @@ pub const Error = error{
     InvalidResourceConfiguration,
     Unknown,
 } || cuda.Error || error{
+    DecoderReconfigurationNotSupported,
     CodecNotSupported,
     ResolutionNotSupported,
     ResolutionNotSupportedMbCountTooHigh,
