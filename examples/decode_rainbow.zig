@@ -53,7 +53,6 @@ pub fn main() !void {
                     nal.appendSlice(buffer[last_nal..index]) catch @panic("oom");
                 }
                 if (nal.items.len > 0) {
-                    std.debug.print("nal: {any},{}\n", .{ nal.items[0..@min(10, nal.items.len)], nal.items.len }); // TODO
                     if (try decoder.decode(nal.items)) |frame| {
                         try handle_frame(decoder.context, &frame);
                     }
@@ -89,8 +88,7 @@ fn handle_frame(cuda_context: *nvdec.cuda.Context, frame: *const nvdec.Frame) !v
     try frame.copy_to_host(.{ .luma = frame_buffer_luma.?, .chroma = frame_buffer_chroma.? });
     try cuda_context.pop();
 
-    std.debug.print(">>>>>>>>>>>>>>>>>>>yuv = ({}, {}, {})\n", .{
-        //std.debug.print("yuv = ({}, {}, {})\n", .{
+    std.debug.print("yuv = ({}, {}, {})\n", .{
         frame_buffer_luma.?[0],
         frame_buffer_chroma.?[0],
         frame_buffer_chroma.?[1],

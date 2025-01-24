@@ -4,11 +4,231 @@ const cuda = @import("cuda");
 const nvenc = @import("nvenc");
 const nvdec = @import("nvdec");
 
-test "default config h264 full hd" {
-    // TODO: Force format (?)
+test "default h264 full hd" {
     try test_encoder_decoder(.{
         .codec = .{ .h264 = .{} },
         .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "default h264 4k" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 3840, .height = 2160 },
+    }, 256);
+}
+
+test "h264 full hd yuv444" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{ .format = .yuv444 } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "h264 full hd profile main" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{ .profile = .main } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "h264 full hd profile high" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{ .profile = .high } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "h264 full hd 60fps" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .frame_rate = .{ .num = 60, .den = 1 },
+    }, 256);
+}
+
+test "h264 full hd presets" {
+    inline for (std.meta.fields(nvenc.Preset)) |preset| {
+        try test_encoder_decoder(.{
+            .codec = .{ .h264 = .{} },
+            .preset = @field(nvenc.Preset, preset.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "h264 full hd p1 tuning" {
+    inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
+        try test_encoder_decoder(.{
+            .codec = .{ .h264 = .{} },
+            .preset = .p1,
+            .tuning = @field(nvenc.Tuning, tuning.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "h264 full hd p7 tuning" {
+    inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
+        try test_encoder_decoder(.{
+            .codec = .{ .h264 = .{} },
+            .preset = .p7,
+            .tuning = @field(nvenc.Tuning, tuning.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "h264 full hd idr interval 2" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .idr_interval = 2,
+    }, 256);
+}
+
+test "h264 full hd rate control cbr" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .cbr = .{ .bitrate = 2_000_000 } },
+    }, 256);
+}
+
+test "h264 full hd rate control vbr" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .vbr = .{
+            .average_bitrate = 2_000_000,
+            .max_bitrate = 10_000_000,
+        } },
+    }, 256);
+}
+
+test "h264 full hd rate const qp" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .const_qp = .{
+            .inter_p = 20,
+            .inter_b = 20,
+            .intra = 20,
+        } },
+    }, 256);
+}
+
+test "default hevc full hd" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "default hevc 4k" {
+    try test_encoder_decoder(.{
+        .codec = .{ .h264 = .{} },
+        .resolution = .{ .width = 3840, .height = 2160 },
+    }, 256);
+}
+
+test "hevc full hd yuv444" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{ .format = .yuv444 } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "hevc full hd profile main" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{ .profile = .main } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "hevc full hd profile main10" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{ .profile = .main10 } },
+        .resolution = .{ .width = 1920, .height = 1080 },
+    }, 256);
+}
+
+test "hevc full hd 60fps" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .frame_rate = .{ .num = 60, .den = 1 },
+    }, 256);
+}
+
+test "hevc full hd presets" {
+    inline for (std.meta.fields(nvenc.Preset)) |preset| {
+        try test_encoder_decoder(.{
+            .codec = .{ .hevc = .{} },
+            .preset = @field(nvenc.Preset, preset.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "hevc full hd p1 tuning" {
+    inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
+        try test_encoder_decoder(.{
+            .codec = .{ .hevc = .{} },
+            .preset = .p1,
+            .tuning = @field(nvenc.Tuning, tuning.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "hevc full hd p7 tuning" {
+    inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
+        try test_encoder_decoder(.{
+            .codec = .{ .hevc = .{} },
+            .preset = .p7,
+            .tuning = @field(nvenc.Tuning, tuning.name),
+            .resolution = .{ .width = 1920, .height = 1080 },
+        }, 256);
+    }
+}
+
+test "hevc full hd idr interval 2" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .idr_interval = 2,
+    }, 256);
+}
+
+test "hevc full hd rate control cbr" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .cbr = .{ .bitrate = 2_000_000 } },
+    }, 256);
+}
+
+test "hevc full hd rate control vbr" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .vbr = .{
+            .average_bitrate = 2_000_000,
+            .max_bitrate = 10_000_000,
+        } },
+    }, 256);
+}
+
+test "hevc full hd rate const qp" {
+    try test_encoder_decoder(.{
+        .codec = .{ .hevc = .{} },
+        .resolution = .{ .width = 1920, .height = 1080 },
+        .rate_control = .{ .const_qp = .{
+            .inter_p = 20,
+            .inter_b = 20,
+            .intra = 20,
+        } },
     }, 256);
 }
 
@@ -76,7 +296,6 @@ const TestFrame = struct {
                 const left = x <= (dims.width / 2);
                 const color = if (top and left) self.q1 else if (top and !left) self.q2 else if (!top and left) self.q3 else if (!top and !left) self.q4 else unreachable;
                 const yuv = color_bytes(color.to_yuv());
-                // if (x == 0 and y == 0) std.debug.print("{any}\n", .{yuv}); // TODO
                 y_plane[(dims.width * y) + x] = yuv[0];
                 if (x % 2 == 0 and y % 2 == 0) {
                     uv_plane[(dims.width * (y / 2)) + x] = yuv[1];
@@ -89,38 +308,43 @@ const TestFrame = struct {
     fn expect_similar(
         self: *const TestFrame,
         frame: struct {
-            y: []u8,
-            uv: []u8,
+            data: struct { luma: []u8, chroma: []u8 },
             dims: struct { width: u32, height: u32 },
         },
     ) !void {
         // You will just have to believe me that this function tests whether
         // the decoded frame is the same frame as the original test frame
         // during encoding.
-        const q1_index_y = ((frame.dims.height / 4) * frame.dims.width) + (frame.dims.width / 4);
-        const q2_index_y = ((frame.dims.height / 4) * frame.dims.width) + (frame.dims.width / 4 * 3);
-        const q3_index_y = ((frame.dims.height / 4 * 3) * frame.dims.width) + (frame.dims.width / 4);
-        const q4_index_y = ((frame.dims.height / 4 * 3) * frame.dims.width) + (frame.dims.width / 4 * 3);
-        const q1_index_uv = ((frame.dims.height / 2 / 4) * frame.dims.width) + (frame.dims.width / 4);
-        const q2_index_uv = ((frame.dims.height / 2 / 4) * frame.dims.width) + (frame.dims.width / 4 * 3);
-        const q3_index_uv = ((frame.dims.height / 2 / 4 * 3) * frame.dims.width) + (frame.dims.width / 4);
-        const q4_index_uv = ((frame.dims.height / 2 / 4 * 3) * frame.dims.width) + (frame.dims.width / 4 * 3);
-        const q1 = .{ frame.y[q1_index_y], frame.uv[q1_index_uv], frame.uv[q1_index_uv + 1] };
-        const q2 = .{ frame.y[q2_index_y], frame.uv[q2_index_uv], frame.uv[q2_index_uv + 1] };
-        const q3 = .{ frame.y[q3_index_y], frame.uv[q3_index_uv], frame.uv[q3_index_uv + 1] };
-        const q4 = .{ frame.y[q4_index_y], frame.uv[q4_index_uv], frame.uv[q4_index_uv + 1] };
-        const q1_color = TestColor.from_yuv(color_f32(q1));
-        const q2_color = TestColor.from_yuv(color_f32(q2));
-        const q3_color = TestColor.from_yuv(color_f32(q3));
-        const q4_color = TestColor.from_yuv(color_f32(q4));
-        // std.debug.print("testing: {any} \n      == {any}\n\n", .{ .{ q1_color.?, q2_color.?, q3_color.?, q4_color.? }, .{ self.q1, self.q2, self.q3, self.q4 } });
-        std.debug.print("{any}\n", .{.{ q1_color.?, q2_color.?, q3_color.?, q4_color.? }});
-        _ = self;
-        // TODO
-        // std.testing.expectEqual(@as(?TestColor, self.q1), q1_color) catch {};
-        // std.testing.expectEqual(@as(?TestColor, self.q2), q2_color) catch {};
-        // std.testing.expectEqual(@as(?TestColor, self.q3), q3_color) catch {};
-        // std.testing.expectEqual(@as(?TestColor, self.q4), q4_color) catch {};
+        const w = frame.dims.width;
+        const h = frame.dims.height;
+        const h2 = frame.dims.height / 2;
+        const q1 = .{
+            frame.data.luma[((h / 4) * w) + (w / 4)],
+            frame.data.chroma[((h2 / 4) * w) + (w / 4)],
+            frame.data.chroma[((h2 / 4) * w) + (w / 4) + 1],
+        };
+        const q2 = .{
+            frame.data.luma[((h / 4) * w) + (w / 4 * 3)],
+            frame.data.chroma[((h2 / 4) * w) + (w / 4 * 3)],
+            frame.data.chroma[((h2 / 4) * w) + (w / 4 * 3) + 1],
+        };
+        const q3 = .{
+            frame.data.luma[((h / 4 * 3) * w) + (w / 4)],
+            frame.data.chroma[((h2 / 4 * 3) * w) + (w / 4)],
+            frame.data.chroma[((h2 / 4 * 3) * w) + (w / 4) + 1],
+        };
+        const q4 = .{
+            frame.data.luma[((h / 4 * 3) * w) + (w / 4 * 3)],
+            frame.data.chroma[((h2 / 4 * 3) * w) + (w / 4 * 3)],
+            frame.data.chroma[((h2 / 4 * 3) * w) + (w / 4 * 3) + 1],
+        };
+        const got_test_frame = TestFrame{
+            .q1 = TestColor.from_yuv(color_f32(q1)) orelse return error.TestUnmatchedColor,
+            .q2 = TestColor.from_yuv(color_f32(q2)) orelse return error.TestUnmatchedColor,
+            .q3 = TestColor.from_yuv(color_f32(q3)) orelse return error.TestUnmatchedColor,
+            .q4 = TestColor.from_yuv(color_f32(q4)) orelse return error.TestUnmatchedColor,
+        };
+        try std.testing.expectEqualDeep(self.*, got_test_frame);
     }
 };
 
@@ -146,7 +370,28 @@ const TestFrameIterator = struct {
     }
 };
 
-const FrameData = struct { y: []u8, uv: []u8 };
+const FrameBuffer = struct {
+    luma: []u8,
+    chroma: []u8,
+    allocator: std.mem.Allocator,
+
+    fn alloc(width: u32, height: u32, allocator: std.mem.Allocator) !FrameBuffer {
+        const luma = try allocator.alloc(u8, height * width);
+        errdefer allocator.free(luma);
+        const chroma = try allocator.alloc(u8, height / 2 * width);
+        errdefer allocator.free(chroma);
+        return FrameBuffer{
+            .luma = luma,
+            .chroma = chroma,
+            .allocator = allocator,
+        };
+    }
+
+    fn free(self: *const FrameBuffer) void {
+        self.allocator.free(self.luma);
+        self.allocator.free(self.chroma);
+    }
+};
 
 fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize) !void {
     const allocator = std.testing.allocator;
@@ -190,12 +435,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
 
     var bitstream = std.ArrayList(u8).init(allocator);
     defer bitstream.deinit();
-    // const bitstream_writer = bitstream.writer();
-
-    // TODO
-    const file = try std.fs.cwd().createFile("test.264", .{});
-    defer file.close();
-    const bitstream_writer = file.writer();
+    const bitstream_writer = bitstream.writer();
 
     var test_frames = TestFrameIterator.init(num_frames);
     while (test_frames.next()) |test_frame| {
@@ -223,14 +463,8 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
 
     test_frames.reset();
 
-    var out_frame_buffer = FrameData{
-        .y = try allocator.alloc(u8, height * width),
-        .uv = try allocator.alloc(u8, height / 2 * width),
-    };
-    defer {
-        allocator.free(out_frame_buffer.y);
-        allocator.free(out_frame_buffer.uv);
-    }
+    var out_frame_buffer = try FrameBuffer.alloc(width, height, allocator);
+    defer out_frame_buffer.free();
 
     const bitstream_buffer = bitstream.items;
 
@@ -239,10 +473,8 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
         .hevc => nvdec.Codec.hevc,
     };
 
-    var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec }, allocator);
+    var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec, .output_format = .nv12 }, allocator);
     defer decoder.destroy();
-
-    // TODO: weird bug that causes frames to repeat in a weird way
 
     var last_nal: ?usize = 0;
 
@@ -250,15 +482,10 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     for (0..len_range) |index| {
         if (std.mem.eql(u8, bitstream_buffer[index .. index + 4], &.{ 0, 0, 0, 1 })) {
             if (last_nal) |last_nal_index| {
-                std.debug.print("nal: {}-{}\n", .{ last_nal_index, index }); // TODO
-
                 const nal = bitstream_buffer[last_nal_index..index];
-
                 if (try decoder.decode(nal)) |out_frame| {
-                    std.debug.print("NAL: {}-{}\n", .{ last_nal_index, index }); // TODO
                     try test_expected_frame(decoder.context, &test_frames, &out_frame, &out_frame_buffer);
                 }
-
                 last_nal = index;
             } else {
                 last_nal = 0;
@@ -285,45 +512,26 @@ fn test_expected_frame(
     context: *cuda.Context,
     test_frames_it: *TestFrameIterator,
     out_frame: *const nvdec.Frame,
-    out_frame_buffer: *const FrameData,
+    out_frame_buffer: *const FrameBuffer,
 ) !void {
     const expected_test_frame = test_frames_it.next() orelse return error.TestUnexpectedFrame;
 
     try context.push();
-    try nvdec.cuda.copy2D(
-        .{ .device_to_host = .{
-            .src = out_frame.data.luma,
-            .dst = out_frame_buffer.y,
-        } },
-        .{
-            .src_pitch = out_frame.pitch,
-            .dst_pitch = out_frame.dims.width,
-            .dims = .{
-                .width = out_frame.dims.width,
-                .height = out_frame.dims.height,
-            },
-        },
-    );
-    try nvdec.cuda.copy2D(
-        .{ .device_to_host = .{
-            .src = out_frame.data.uv,
-            .dst = out_frame_buffer.uv,
-        } },
-        .{
-            .src_pitch = out_frame.pitch,
-            .dst_pitch = out_frame.dims.width,
-            .dims = .{
-                .width = out_frame.dims.width,
-                .height = out_frame.dims.height / 2,
-            },
-        },
-    );
+    try out_frame.copy_to_host(.{
+        .luma = out_frame_buffer.luma,
+        .chroma = out_frame_buffer.chroma,
+    });
     try context.pop();
 
     try expected_test_frame.expect_similar(.{
-        .y = out_frame_buffer.y,
-        .uv = out_frame_buffer.uv,
-        .dims = .{ .width = out_frame.dims.width, .height = out_frame.dims.height },
+        .data = .{
+            .luma = out_frame_buffer.luma,
+            .chroma = out_frame_buffer.chroma,
+        },
+        .dims = .{
+            .width = out_frame.dims.width,
+            .height = out_frame.dims.height,
+        },
     });
 }
 

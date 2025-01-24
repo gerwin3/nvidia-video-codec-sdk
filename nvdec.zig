@@ -193,19 +193,17 @@ pub const Decoder = struct {
     }
 
     /// Frame is valid until next call to decode, flush or deinit.
+    /// data must contain full NAL.
     pub fn decode(self: *Decoder, data: []const u8) !?Frame {
         // First unmap the frame we previously mapped and loaned out to the
         // caller.
         if (self.cur_frame_data) |frame_data| {
             result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
-            std.debug.print("unmap: {}\n", .{frame_data}); // TODO
-            std.debug.print("cur_frame: null\n", .{}); // TODO
             self.cur_frame_data = null;
         }
 
         if (self.output_buffer.readItem()) |frame| {
             self.cur_frame_data = frame.data.luma;
-            std.debug.print("cur_frame: {}\n", .{frame.data.luma}); // TODO
             return frame;
         }
 
@@ -213,25 +211,23 @@ pub const Decoder = struct {
         if (data.len > 0) {
             packet.payload = data.ptr;
             packet.payload_size = @intCast(data.len);
-            packet.flags = nvdec_bindings.packet_flags.timestamp;
+            packet.flags = nvdec_bindings.packet_flags.endofpicture; // contains whole NAL
         } else {
             packet.payload = null;
             packet.payload_size = 0;
-            packet.flags = nvdec_bindings.packet_flags.timestamp | nvdec_bindings.packet_flags.endofstream;
+            packet.flags = nvdec_bindings.packet_flags.endofstream;
         }
 
         try result(nvdec_bindings.cuvidParseVideoData.?(self.parser, &packet));
 
         // handle possible errors from one of the callbacks
         if (self.error_state) |err| {
-            std.debug.print("{}\n", .{err}); // TODO
             self.error_state = null;
             return err;
         }
 
         if (self.output_buffer.readItem()) |frame| {
             self.cur_frame_data = frame.data.luma;
-            std.debug.print("cur_frame: {}\n", .{frame.data.luma}); // TODO
             return frame;
         } else {
             return null;
@@ -348,7 +344,6 @@ pub const Decoder = struct {
 
     fn handle_decode_picture(self: *Decoder, pic_params: *nvdec_bindings.PicParams) !void {
         try result(nvdec_bindings.cuvidDecodePicture.?(self.decoder, pic_params));
-        // std.debug.print("CurrPicIdx: {}\n", .{pic_params.?.CurrPicIdx}); // TODO
     }
 
     fn handle_display_picture(self: *Decoder, parser_disp_info: *nvdec_bindings.ParserDispInfo) !void {
@@ -363,6 +358,7 @@ pub const Decoder = struct {
 
         var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
+
         try self.context.push();
         try result(nvdec_bindings.cuvidMapVideoFrame64.?(
             self.decoder,
@@ -371,11 +367,10 @@ pub const Decoder = struct {
             &frame_pitch,
             &proc_params,
         ));
-        try self.context.pop();
         errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
-        std.debug.assert(frame_data != 0);
+        try self.context.pop();
 
-        std.debug.print("map: {},{}\n", .{ frame_data, parser_disp_info.picture_index }); // TODO
+        std.debug.assert(frame_data != 0);
 
         // NOTE: Doing this after mapping operation since NvDecoder does it
         // too, probably for good reasons.
@@ -397,7 +392,7 @@ pub const Decoder = struct {
                 .luma = frame_data,
                 .chroma = frame_data + offset,
                 .chroma2 = switch (format) {
-                    .yuv444, .yuv444_16bit => frame_data + offset + offset,
+                    .yuv444, .yuv444_16bit => frame_data + (2 * offset),
                     // U and V planes are weaved in NV12 and P016 formats so
                     // there is no second chroma plane.
                     else => null,
@@ -405,10 +400,7 @@ pub const Decoder = struct {
             },
             .format = format_info.output_format,
             .pitch = @intCast(frame_pitch),
-            .dims = .{
-                .width = width,
-                .height = height,
-            },
+            .dims = .{ .width = width, .height = height },
             .timestamp = @intCast(parser_disp_info.timestamp),
         };
 
