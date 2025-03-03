@@ -13,16 +13,16 @@ pub const create_bitstream_buffer_ver = struct_version(1);
 pub const create_mv_buffer_ver = struct_version(1);
 pub const rc_params_ver = struct_version(1);
 pub const pic_params_mvc_ver = struct_version(1);
-pub const config_ver = struct_version(7) | (1 << 31);
+pub const config_ver = struct_version(8) | (1 << 31);
 pub const initialize_params_ver = struct_version(5) | (1 << 31);
 pub const reconfigure_params_ver = struct_version(1) | (1 << 31);
 pub const preset_config_ver = struct_version(4) | (1 << 31);
-pub const pic_params_ver = struct_version(4) | (1 << 31);
+pub const pic_params_ver = struct_version(6) | (1 << 31);
 pub const meonly_params_ver = struct_version(3);
-pub const lock_bitstream_ver = struct_version(1);
+pub const lock_bitstream_ver = struct_version(2);
 pub const lock_input_buffer_ver = struct_version(1);
 pub const map_input_resource_ver = struct_version(4);
-pub const register_resource_ver = struct_version(3);
+pub const register_resource_ver = struct_version(4);
 pub const stat_ver = struct_version(1);
 pub const sequence_param_payload_ver = struct_version(1);
 pub const event_params_ver = struct_version(1);
@@ -57,6 +57,8 @@ pub const preset_p6 = guid(0x8e75c279, 0x6299, 0x4ab6, .{ 0x83, 0x02, 0x0b, 0x21
 pub const preset_p7 = guid(0x84848c12, 0x6f71, 0x4c13, .{ 0x93, 0x1b, 0x53, 0xe2, 0x83, 0xf5, 0x79, 0x74 });
 
 pub const infinite_goplength: u32 = 0xffffffff;
+
+pub const max_num_clock_ts = 3;
 
 pub const AV1PartSize = enum(c_uint) {
     autoselect = 0,
@@ -342,7 +344,7 @@ pub const TuningInfo = enum(c_uint) {
     lossless = 4,
 };
 
-pub const VuiVideoFormat = enum(c_uint) {
+pub const VuiVideoFormat = enum(u32) {
     component = 0,
     pal = 1,
     ntsc = 2,
@@ -351,7 +353,7 @@ pub const VuiVideoFormat = enum(c_uint) {
     unspecified = 5,
 };
 
-pub const VuiColorPrimaries = enum(c_uint) {
+pub const VuiColorPrimaries = enum(u32) {
     undefined = 0,
     bt709 = 1,
     unspecified = 2,
@@ -368,7 +370,7 @@ pub const VuiColorPrimaries = enum(c_uint) {
     jedec_p22 = 22,
 };
 
-pub const VuiTransferCharacteristic = enum(c_uint) {
+pub const VuiTransferCharacteristic = enum(u32) {
     undefined = 0,
     bt709 = 1,
     unspecified = 2,
@@ -390,7 +392,7 @@ pub const VuiTransferCharacteristic = enum(c_uint) {
     arib_std_b67 = 18,
 };
 
-pub const VuiMatrixCoeffs = enum(c_uint) {
+pub const VuiMatrixCoeffs = enum(u32) {
     rgb = 0,
     bt709 = 1,
     unspecified = 2,
@@ -410,9 +412,26 @@ pub const OutputPtr = ?*opaque {};
 pub const RegisteredPtr = ?*opaque {};
 pub const CustreamPtr = ?*opaque {};
 
+pub const AV1OBUPayload = SeiPayload;
+
+pub const ClockTimestampSet = extern struct {
+    bitfields: packed struct {
+        countingType: bool,
+        discontinuityFlag: bool,
+        cntDroppedFrames: bool,
+        nFrames: u8,
+        secondsValue: u6,
+        minutesValue: u6,
+        hoursValue: u5,
+        reserved2: u4,
+    },
+    timeOffset: u32,
+};
+
 pub const CodecConfig = extern union {
     h264Config: ConfigH264,
     hevcConfig: ConfigHEVC,
+    av1Config: ConfigAV1,
     h264MeOnlyConfig: ConfigH264MeOnly,
     hevcMeOnlyConfig: ConfigHEVCMeOnly,
     _reserved: [320]u32,
@@ -421,6 +440,7 @@ pub const CodecConfig = extern union {
 pub const CodecPicParams = extern union {
     h264PicParams: PicParamsH264,
     hevcPicParams: PicParamsHEVC,
+    av1PicParams: PicParamsAV1,
     _reserved: [256]u32,
 };
 
@@ -438,9 +458,52 @@ pub const Config = extern struct {
     _reserved2: [64]?*anyopaque,
 };
 
+pub const ConfigAV1 = extern struct {
+    level: u32,
+    tier: u32,
+    minPartSize: AV1PartSize,
+    maxPartSize: AV1PartSize,
+    bitfields: packed struct {
+        outputAnnexBFormat: bool,
+        enableTimingInfo: bool,
+        enableDecoderModelInfo: bool,
+        enableFrameIdNumbers: bool,
+        disableSeqHdr: bool,
+        repeatSeqHdr: bool,
+        enableIntraRefresh: bool,
+        chromaFormatIDC: u2,
+        enableBitstreamPadding: bool,
+        enableCustomTileConfig: bool,
+        enableFilmGrainParams: bool,
+        inputPixelBitDepthMinus8: u3,
+        pixelBitDepthMinus8: u3,
+        _reserved: u14,
+    },
+    idrPeriod: u32,
+    intraRefreshPeriod: u32,
+    intraRefreshCnt: u32,
+    maxNumRefFramesInDPB: u32,
+    numTileColumns: u32,
+    numTileRows: u32,
+    tileWidths: [*c]u32,
+    tileHeights: [*c]u32,
+    maxTemporalLayersMinus1: u32,
+    colorPrimaries: VuiColorPrimaries,
+    transferCharacteristics: VuiTransferCharacteristic,
+    matrixCoefficients: VuiMatrixCoeffs,
+    colorRange: u32,
+    chromaSamplePosition: u32,
+    useBFramesAsRef: BFrameRefMode,
+    filmGrainParams: ?*FilmGrainParamsAV1,
+    numFwdRefs: NumRefFrames,
+    numBwdRefs: NumRefFrames,
+    _reserved1: [235]u32,
+    _reserved2: [62]?*anyopaque,
+};
+
 pub const ConfigH264 = extern struct {
     bitfields: packed struct {
-        _reserved1: bool,
+        enableTemporalSVC: bool,
         enableStereoMVC: bool,
         hierarchicalPFrames: bool,
         hierarchicalBFrames: bool,
@@ -458,7 +521,11 @@ pub const ConfigH264 = extern struct {
         qpPrimeYZeroTransformBypassFlag: bool,
         useConstrainedIntraPred: bool,
         enableFillerDataInsertion: bool,
-        _reserved2: u14,
+        disableSVCPrefixNalu: bool,
+        enableScalabilityInfoSEI: bool,
+        singleSliceIntraRefresh: bool,
+        enableTimeCode: bool,
+        _reserved: u10,
     },
     level: u32,
     idrPeriod: u32,
@@ -499,17 +566,20 @@ pub const ConfigH264VuiParameters = extern struct {
     overscanInfoPresentFlag: u32,
     overscanInfo: u32,
     videoSignalTypePresentFlag: u32,
-    videoFormat: u32,
+    videoFormat: VuiVideoFormat,
     videoFullRangeFlag: u32,
     colourDescriptionPresentFlag: u32,
-    colourPrimaries: u32,
-    transferCharacteristics: u32,
-    colourMatrix: u32,
+    colourPrimaries: VuiColorPrimaries,
+    transferCharacteristics: VuiTransferCharacteristic,
+    colourMatrix: VuiMatrixCoeffs,
     chromaSampleLocationFlag: u32,
     chromaSampleLocationTop: u32,
     chromaSampleLocationBot: u32,
     bitstreamRestrictionFlag: u32,
-    _reserved: [15]u32,
+    timingInfoPresentFlag: u32,
+    numUnitInTicks: u32,
+    timeScale: u32,
+    _reserved: [12]u32,
 };
 
 pub const ConfigHEVCVuiParameters = extern struct {
@@ -548,7 +618,11 @@ pub const ConfigHEVC = extern struct {
         pixelBitDepthMinus8: u3,
         enableFillerDataInsetion: bool,
         enableConstrainedEncoding: bool,
-        _reserved: u16,
+        enableAlphaLayerEncoding: bool,
+        singleSliceIntraRefresh: bool,
+        outputRecoveryPointSEI: bool,
+        outputTimeCodeSEI: bool,
+        reserved: u12,
     },
     idrPeriod: u32,
     intraRefreshPeriod: u32,
@@ -603,9 +677,48 @@ pub const ExternalMeHint = extern struct {
     _reserved: i32,
 };
 
+pub const ExternalMeSbHint = extern struct {
+    _reserved: i16,
+    _reserved1: i16,
+    _reserved2: i16,
+};
+
 pub const ExternalMeHintCountsPerBlocktype = extern struct {
     _reserved: u32,
     _reserved1: [3]u32,
+};
+
+pub const FilmGrainParamsAV1 = extern struct {
+    bitfields: packed struct {
+        applyGrain: bool,
+        chromaScalingFromLuma: bool,
+        overlapFlag: bool,
+        clipToRestrictedRange: bool,
+        grainScalingMinus8: u2,
+        arCoeffLag: u2,
+        numYPoints: u4,
+        numCbPoints: u4,
+        numCrPoints: u4,
+        arCoeffShiftMinus6: u2,
+        grainScaleShift: u2,
+        _reserved: u8,
+    },
+    pointYValue: u8[14],
+    pointYScaling: u8[14],
+    pointCbValue: u8[10],
+    pointCbScaling: u8[10],
+    pointCrValue: u8[10],
+    pointCrScaling: u8[10],
+    arCoeffsYPlus128: u8[24],
+    arCoeffsCbPlus128: u8[25],
+    arCoeffsCrPlus128: u8[25],
+    _reserved: u8[2],
+    cbMult: u8,
+    cbLumaMult: u8,
+    cbOffset: u16,
+    crMult: u8,
+    crLumaMult: u8,
+    crOffset: u16,
 };
 
 pub const GUID = extern struct {
@@ -635,7 +748,8 @@ pub const InitializeParams = extern struct {
     maxEncodeHeight: u32,
     maxMEHintCountsPerBlock: [2]ExternalMeHintCountsPerBlocktype,
     tuningInfo: TuningInfo,
-    _reserved: [288]u32,
+    bufferFormat: BufferFormat,
+    _reserved: [287]u32,
     _reserved2: [64]?*anyopaque,
 };
 
@@ -662,12 +776,14 @@ pub const LockBitstream = extern struct {
     frameSatd: u32,
     ltrFrameIdx: u32,
     ltrFrameBitmap: u32,
-    _reserved: [13]u32,
+    temporalId: u32,
+    _reserved: [12]u32,
     intraMBCount: u32,
     interMBCount: u32,
     averageMVX: i32,
     averageMVY: i32,
-    _reserved1: [219]u32,
+    alphaLayerSizeInBytes: u32,
+    _reserved1: [218]u32,
     _reserved2: [64]?*anyopaque,
 };
 
@@ -726,8 +842,41 @@ pub const PicParams = extern struct {
     qpDeltaMapSize: u32,
     _reservedBitFields: u32,
     meHintRefPicDist: [2]u16,
-    _reserved3: [286]u32,
-    _reserved4: [60]?*anyopaque,
+    alphaBuffer: InputPtr,
+    meExternalSbHints: [*c]ExternalMeSbHint,
+    meSbHintsCount: u32,
+    _reserved3: [285]u32,
+    _reserved4: [58]?*anyopaque,
+};
+
+pub const PicParamsAV1 = extern struct {
+    displayPOCSyntax: u32,
+    refPicFlag: u32,
+    temporalId: u32,
+    forceIntraRefreshWithFrameCnt: u32,
+    bitfields: packed struct {
+        goldenFrameFlag: bool,
+        arfFrameFlag: bool,
+        arf2FrameFlag: bool,
+        bwdFrameFlag: bool,
+        overlayFrameFlag: bool,
+        showExistingFrameFlag: bool,
+        errorResilientModeFlag: bool,
+        tileConfigUpdate: bool,
+        enableCustomTileConfig: bool,
+        filmGrainParamsUpdate: bool,
+        reservedBitFields: u22,
+    },
+    numTileColumns: u32,
+    numTileRows: u32,
+    tileWidths: [*c]u32,
+    tileHeights: [*c]u32,
+    obuPayloadArrayCnt: u32,
+    _reserved: u32,
+    obuPayloadArray: *?AV1OBUPayload,
+    filmGrainParams: *?FilmGrainParamsAV1,
+    _reserved1: u32[247],
+    _reserved2: ?*anyopaque[61],
 };
 
 pub const PicParamsH264 = extern struct {
@@ -783,7 +932,8 @@ pub const PicParamsHEVC = extern struct {
     seiPayloadArrayCnt: u32,
     _reserved: u32,
     seiPayloadArray: [*c]SeiPayload,
-    _reserved2: [244]u32,
+    timeCode: TimeCode,
+    _reserved2: [237]u32,
     _reserved3: [61]?*anyopaque,
 };
 
@@ -845,8 +995,9 @@ pub const RegisterResource = extern struct {
     registeredResource: RegisteredPtr,
     bufferFormat: BufferFormat,
     bufferUsage: BufferUsage,
+    pInputFencePointer: ?*anyopaque,
     _reserved1: [247]u32,
-    _reserved2: [62]?*anyopaque,
+    _reserved2: [61]?*anyopaque,
 };
 
 pub const SeiPayload = extern struct {
@@ -864,6 +1015,11 @@ pub const SequenceParamPayload = extern struct {
     outSPSPPSPayloadSize: [*c]u32,
     _reserved: [250]u32,
     _reserved2: [64]?*anyopaque,
+};
+
+pub const TimeCode = extern struct {
+    displayPicStruct: DisplayPicStruct,
+    clockTimestamp: [max_num_clock_ts]ClockTimestampSet,
 };
 
 pub const ApiFunctionList = extern struct {
