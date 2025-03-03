@@ -84,6 +84,7 @@ For your convenience, find the full compatibility matrix below:
 
 | Video Codec SDK Version | Minimal Driver Version (Windows/Linux) | Minimal CUDA Version |
 |-------------------------|----------------------------------------|----------------------|
+| 13.0                    | 570.0 / 570.0                          | 11.0                 |
 | 12.2                    | 551.76 / 550.54.14                     | 11.0                 |
 | 12.1                    | 531.61 / 530.41.03                     | 11.0                 |
 | 12.0                    | 522.25 / 520.56.06                     | 11.0                 |
@@ -100,10 +101,10 @@ For your convenience, find the full compatibility matrix below:
 
 Licensed under either of
 
- * Apache License, Version 2.0
-   ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license
-   ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
+* Apache License, Version 2.0
+   ([LICENSE-APACHE](LICENSE-APACHE) or <http://www.apache.org/licenses/LICENSE-2.0>)
+* MIT license
+   ([LICENSE-MIT](LICENSE-MIT) or <http://opensource.org/licenses/MIT>)
 
 at your option.
 
