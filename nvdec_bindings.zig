@@ -289,12 +289,18 @@ pub const ParserParams = extern struct {
     ulClockRate: c_uint,
     ulErrorThreshold: c_uint,
     ulMaxDisplayDelay: c_uint,
-    uReserved1: [5]c_uint,
+    bitfields: packed struct {
+        bAnnexb: bool,
+        uReserved: u31,
+    },
+    uReserved1: [4]c_uint,
     pUserData: ?*anyopaque,
     pfnSequenceCallback: ?*const fn (?*anyopaque, ?*VideoFormat) callconv(.C) c_int,
     pfnDecodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) c_int,
     pfnDisplayPicture: ?*const fn (?*anyopaque, ?*ParserDispInfo) callconv(.C) c_int,
-    pvReserved2: [7]?*anyopaque,
+    pfnGetOperatingPoint: ?*const fn (?*anyopaque, ?*CUVIDOPERATINGPOINTINFO) callconv(.C) c_int,
+    pfnGetSEIMsg: ?*const fn (?*anyopaque, ?*CUVIDSEIMESSAGEINFO) callconv(.C) c_int,
+    pvReserved2: [5]?*anyopaque,
     pExtVideoInfo: ?*VideoFormatEx,
 };
 
@@ -674,7 +680,7 @@ pub const VideoFormat = extern struct {
 
 pub const VideoFormatEx = extern struct {
     format: VideoFormat,
-    raw_seqhdr_data: [1024]u8,
+    raw_seqhdr_data: [1024]u8, // TODO
 };
 
 pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
