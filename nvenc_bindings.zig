@@ -41,24 +41,12 @@ pub const h264_profile_main_guid = guid(0x60b5c1d4, 0x67fe, 0x4790, .{ 0x94, 0xd
 pub const h264_profile_high_guid = guid(0xe7cbc309, 0x4f7a, 0x4b89, .{ 0xaf, 0x2a, 0xd5, 0x37, 0xc9, 0x2b, 0xe3, 0x10 });
 pub const h264_profile_high_444_guid = guid(0x7ac663cb, 0xa598, 0x4960, .{ 0xb8, 0x44, 0x33, 0x9b, 0x26, 0x1a, 0x7d, 0x52 });
 pub const h264_profile_stereo_guid = guid(0x40847bf5, 0x33f7, 0x4601, .{ 0x90, 0x84, 0xe8, 0xfe, 0x3c, 0x1d, 0xb8, 0xb7 });
-pub const h264_profile_svc_temporal_scalabilty = guid(0xce788d20, 0xaaa9, 0x4318, .{ 0x92, 0xbb, 0xac, 0x7e, 0x85, 0x8c, 0x8d, 0x36 });
 pub const h264_profile_progressive_high_guid = guid(0xb405afac, 0xf32b, 0x417b, .{ 0x89, 0xc4, 0x9a, 0xbe, 0xed, 0x3e, 0x59, 0x78 });
 pub const h264_profile_constrained_high_guid = guid(0xaec1bd87, 0xe85b, 0x48f2, .{ 0x84, 0xc3, 0x98, 0xbc, 0xa6, 0x28, 0x50, 0x72 });
 pub const hevc_profile_main_guid = guid(0xb514c39a, 0xb55b, 0x40fa, .{ 0x87, 0x8f, 0xf1, 0x25, 0x3b, 0x4d, 0xfd, 0xec });
 pub const hevc_profile_main10_guid = guid(0xfa4d2b6c, 0x3a5b, 0x411a, .{ 0x80, 0x18, 0x0a, 0x3f, 0x5e, 0x3c, 0x9b, 0xe5 });
 pub const hevc_profile_frext_guid = guid(0x51ec32b5, 0x1b4c, 0x453c, .{ 0x9c, 0xbd, 0xb6, 0x16, 0xbd, 0x62, 0x13, 0x41 });
-
-// The old presets were deprecated starting SDK version 10.0. We remove them
-// entirely since using them is not supported on modern driver versions.
-// pub const preset_default_guid = guid(0xb2dfb705, 0x4ebd, 0x4c49, .{ 0x9b, 0x5f, 0x24, 0xa7, 0x77, 0xd3, 0xe5, 0x87 });
-// pub const preset_hp_guid = guid(0x60e4c59f, 0xe846, 0x4484, .{ 0xa5, 0x6d, 0xcd, 0x45, 0xbe, 0x9f, 0xdd, 0xf6 });
-// pub const preset_hq_guid = guid(0x34dba71d, 0xa77b, 0x4b8f, .{ 0x9c, 0x3e, 0xb6, 0xd5, 0xda, 0x24, 0xc0, 0x12 });
-// pub const preset_bd_guid = guid(0x82e3e450, 0xbdbb, 0x4e40, .{ 0x98, 0x9c, 0x82, 0xa9, 0xd, 0xf9, 0xef, 0x32 });
-// pub const preset_low_latency_default_guid = guid(0x49df21c5, 0x6dfa, 0x4feb, .{ 0x97, 0x87, 0x6a, 0xcc, 0x9e, 0xff, 0xb7, 0x26 });
-// pub const preset_low_latency_hq_guid = guid(0xc5f733b9, 0xea97, 0x4cf9, .{ 0xbe, 0xc2, 0xbf, 0x78, 0xa7, 0x4f, 0xd1, 0x5 });
-// pub const preset_low_latency_hp_guid = guid(0x67082a44, 0x4bad, 0x48fa, .{ 0x98, 0xea, 0x93, 0x5, 0x6d, 0x15, 0xa, 0x58 });
-// pub const preset_lossless_default_guid = guid(0xd5bfb716, 0xc604, 0x44e7, .{ 0x9b, 0xb8, 0xde, 0xa5, 0x51, 0xf, 0xc3, 0xac });
-// pub const preset_lossless_hp_guid = guid(0x149998e7, 0x2364, 0x411d, .{ 0x82, 0xef, 0x17, 0x98, 0x88, 0x9, 0x34, 0x9 });
+pub const av1_profile_main_guid = guid(0x5f2a39f5, 0xf14e, 0x4f95, .{ 0x9a, 0x9e, 0xb7, 0x6d, 0x56, 0x8f, 0xcf, 0x97 });
 
 pub const preset_p1 = guid(0xfc0a8d3e, 0x45f8, 0x4cf8, .{ 0x80, 0xc7, 0x29, 0x88, 0x71, 0x59, 0x0e, 0xbf });
 pub const preset_p2 = guid(0xf581cfb8, 0x88d6, 0x4381, .{ 0x93, 0xf0, 0xdf, 0x13, 0xf9, 0xc2, 0x7d, 0xab });
@@ -69,6 +57,15 @@ pub const preset_p6 = guid(0x8e75c279, 0x6299, 0x4ab6, .{ 0x83, 0x02, 0x0b, 0x21
 pub const preset_p7 = guid(0x84848c12, 0x6f71, 0x4c13, .{ 0x93, 0x1b, 0x53, 0xe2, 0x83, 0xf5, 0x79, 0x74 });
 
 pub const infinite_goplength: u32 = 0xffffffff;
+
+pub const AV1PartSize = enum(c_uint) {
+    autoselect = 0,
+    @"4x4" = 1,
+    @"8x8" = 2,
+    @"16x16" = 3,
+    @"32x32" = 4,
+    @"64x64" = 5,
+};
 
 pub const BFrameRefMode = enum(c_uint) {
     disabled = 0,
@@ -102,6 +99,14 @@ pub const DeviceType = enum(c_uint) {
     directx = 0,
     cuda = 1,
     opengl = 2,
+};
+
+pub const DisplayPicStruct = enum(c_uint) {
+    frame = 0,
+    field_top_bottom = 1,
+    field_bottom_top = 2,
+    frame_doubling = 3,
+    frame_tripling = 4,
 };
 
 pub const H264AdaptiveTransformMode = enum(c_uint) {
@@ -181,8 +186,39 @@ pub const Level = enum(c_uint) {
     hevc_6 = 180,
     hevc_61 = 183,
     hevc_62 = 186,
-    hevc_main = 0,
-    hevc_high = 1,
+
+    tier_hevc_main = 0,
+    tier_hevc_high = 1,
+
+    av1_2 = 0,
+    av1_21 = 1,
+    av1_22 = 2,
+    av1_23 = 3,
+    av1_3 = 4,
+    av1_31 = 5,
+    av1_32 = 6,
+    av1_33 = 7,
+    av1_4 = 8,
+    av1_41 = 9,
+    av1_42 = 10,
+    av1_43 = 11,
+    av1_5 = 12,
+    av1_51 = 13,
+    av1_52 = 14,
+    av1_53 = 15,
+    av1_6 = 16,
+    av1_61 = 17,
+    av1_62 = 18,
+    av1_63 = 19,
+    av1_7 = 20,
+    av1_71 = 21,
+    av1_72 = 22,
+    av1_73 = 23,
+
+    av1_autoselect = 0,
+
+    tier_av1_0 = 0,
+    tier_av1_1 = 1,
 };
 
 pub const MemoryHeap = enum(c_uint) {
@@ -304,6 +340,69 @@ pub const TuningInfo = enum(c_uint) {
     low_latency = 2,
     ultra_low_latency = 3,
     lossless = 4,
+};
+
+pub const VuiVideoFormat = enum(c_uint) {
+    component = 0,
+    pal = 1,
+    ntsc = 2,
+    secam = 3,
+    mac = 4,
+    unspecified = 5,
+};
+
+pub const VuiColorPrimaries = enum(c_uint) {
+    undefined = 0,
+    bt709 = 1,
+    unspecified = 2,
+    reserved = 3,
+    bt470m = 4,
+    bt470bg = 5,
+    smpte170m = 6,
+    smpte240m = 7,
+    film = 8,
+    bt2020 = 9,
+    smpte428 = 10,
+    smpte431 = 11,
+    smpte432 = 12,
+    jedec_p22 = 22,
+};
+
+pub const VuiTransferCharacteristic = enum(c_uint) {
+    undefined = 0,
+    bt709 = 1,
+    unspecified = 2,
+    reserved = 3,
+    bt470m = 4,
+    bt470bg = 5,
+    smpte170m = 6,
+    smpte240m = 7,
+    linear = 8,
+    log = 9,
+    log_sqrt = 10,
+    iec61966_2_4 = 11,
+    bt1361_ecg = 12,
+    srgb = 13,
+    bt2020_10 = 14,
+    bt2020_12 = 15,
+    smpte2084 = 16,
+    smpte428 = 17,
+    arib_std_b67 = 18,
+};
+
+pub const VuiMatrixCoeffs = enum(c_uint) {
+    rgb = 0,
+    bt709 = 1,
+    unspecified = 2,
+    reserved = 3,
+    fcc = 4,
+    bt470bg = 5,
+    smpte170m = 6,
+    smpte240m = 7,
+    ycgco = 8,
+    bt2020_ncl = 9,
+    bt2020_cl = 10,
+    smpte2085 = 11,
 };
 
 pub const InputPtr = ?*opaque {};
@@ -723,10 +822,16 @@ pub const RcParams = extern struct {
     targetQualityLSB: u8,
     lookaheadDepth: u16,
     lowDelayKeyFrameScale: u8,
-    _reserved1: [3]u8,
+    yDcQPIndexOffset: u8,
+    uDcQPIndexOffset: u8,
+    vDcQPIndexOffset: u8,
     qpMapMode: QPMapMode,
     multiPass: MultiPass,
-    _reserved: [6]u32,
+    alphaLayerBitrateRatio: u32,
+    cbQPIndexOffset: u8,
+    crQPIndexOffset: u8,
+    _reserved: u16,
+    _reserved2: [4]u32,
 };
 
 pub const RegisterResource = extern struct {
