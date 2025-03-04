@@ -389,9 +389,9 @@ pub const Encoder = struct {
         errdefer allocator.free(io_buffer_items);
 
         for (io_buffer_items) |*item| item.* = .{};
-        errdefer for (io_buffer_items) |item| {
-            if (item.output_bitstream) |output_bitstream| {
-                status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(encoder, output_bitstream)) catch unreachable;
+        errdefer for (io_buffer_items) |*item| {
+            if (item.output_bitstream) |*output_bitstream| {
+                status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(encoder, output_bitstream.*)) catch unreachable;
             }
         };
 
@@ -416,13 +416,17 @@ pub const Encoder = struct {
     pub fn deinit(self: *Encoder) void {
         self.allocator.free(self.parameter_sets);
 
-        while (self.io_buffer.pop()) |input_output_pair| {
-            if (input_output_pair.input_mapped_resource) |mapped_resource| status(nvenc_bindings.nvEncUnmapInputResource.?(self.encoder, mapped_resource)) catch unreachable;
-            if (input_output_pair.input_registered_resource) |registered_resource| status(nvenc_bindings.nvEncUnregisterResource.?(self.encoder, registered_resource)) catch unreachable;
-            status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, input_output_pair.output_bitstream)) catch unreachable;
-        }
+        // By flushing here we drain the pipeline of any surfaces that are
+        // still mapped. Note that we must do the full flush (including sending
+        // EOS) in case the user did not properly flush. Not doing so can cause
+        // segfault. Flushing will take care of all remaining io_buffer items
+        // and unlocks and deallocates the input mapped resource and registered
+        // resource. We must still destroy the bitstreams.
+        self.flush(std.io.null_writer) catch unreachable;
 
         for (self.io_buffer_items) |*item| {
+            std.debug.assert(item.input_mapped_resource == null);
+            std.debug.assert(item.input_registered_resource == null);
             status(nvenc_bindings.nvEncDestroyBitstreamBuffer.?(self.encoder, item.output_bitstream)) catch unreachable;
         }
         self.allocator.free(self.io_buffer_items);
@@ -501,8 +505,8 @@ pub const Encoder = struct {
         // Then we can drain the rest of the buffer.
         var pic_params = std.mem.zeroes(nvenc_bindings.PicParams);
         pic_params.version = nvenc_bindings.pic_params_ver;
-        pic_params.encodePicFlags = nvenc_bindings.pic_flag_eos;
-        try status(nvenc_bindings.nvEncEncodePicture(self.encoder, &pic_params));
+        pic_params.encodePicFlags = @intFromEnum(nvenc_bindings.PicFlags.eos);
+        try status(nvenc_bindings.nvEncEncodePicture.?(self.encoder, &pic_params));
 
         try self.drain(writer);
     }

@@ -67,4 +67,6 @@ pub fn main() !void {
 
         try encoder.encode(&frame, writer);
     }
+
+    try encoder.flush(writer);
 }

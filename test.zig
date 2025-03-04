@@ -773,6 +773,8 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
         try encoder.encode(&in_frame, bitstream_writer);
     }
 
+    try encoder.flush(bitstream_writer);
+
     test_frames.reset();
 
     var out_frame_buffer = try FrameBuffer.alloc(width, height, allocator);
