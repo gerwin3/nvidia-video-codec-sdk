@@ -169,6 +169,12 @@ pub const create_flags = struct {
     pub const prefer_CUVID: c_uint = 4;
 };
 
+pub const AV1SeqHdr = extern struct {
+    max_width: c_uint,
+    max_height: c_uint,
+    _reserved: [1016]u8,
+};
+
 pub const CreateInfo = extern struct {
     ulWidth: c_ulong,
     ulHeight: c_ulong,
@@ -298,8 +304,8 @@ pub const ParserParams = extern struct {
     pfnSequenceCallback: ?*const fn (?*anyopaque, ?*VideoFormat) callconv(.C) c_int,
     pfnDecodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) c_int,
     pfnDisplayPicture: ?*const fn (?*anyopaque, ?*ParserDispInfo) callconv(.C) c_int,
-    pfnGetOperatingPoint: ?*const fn (?*anyopaque, ?*CUVIDOPERATINGPOINTINFO) callconv(.C) c_int,
-    pfnGetSEIMsg: ?*const fn (?*anyopaque, ?*CUVIDSEIMESSAGEINFO) callconv(.C) c_int,
+    pfnGetOperatingPoint: ?*const fn (?*anyopaque, ?*OperatingPointInfo) callconv(.C) c_int,
+    pfnGetSEIMsg: ?*const fn (?*anyopaque, ?*SEIMessageInfo) callconv(.C) c_int,
     pvReserved2: [5]?*anyopaque,
     pExtVideoInfo: ?*VideoFormatEx,
 };
@@ -620,6 +626,18 @@ pub const VP9PicParams = extern struct {
     reserved128Bits: [4]c_uint,
 };
 
+pub const OperatingPointInfo = extern struct {
+    codec: VideoCodec,
+    data: extern union {
+        av1: extern struct {
+            operating_points_cnt: u8,
+            reserved24_bits: [3]u8,
+            operating_points_idc: [32]c_ushort,
+        },
+        _CodecReserved: [1024]u8,
+    },
+};
+
 pub const ProcParams = extern struct {
     progressive_frame: c_int,
     second_field: c_int,
@@ -636,6 +654,19 @@ pub const ProcParams = extern struct {
     output_stream: cuda_bindings.Stream,
     _Reserved: [46]c_uint,
     _Reserved2: [2]?*anyopaque,
+};
+
+pub const SEIMessage = extern struct {
+    sei_message_type: u8,
+    reserved: [3]u8,
+    sei_message_size: c_uint,
+};
+
+pub const SEIMessageInfo = extern struct {
+    pSEIData: ?*anyopaque,
+    pSEIMessage: ?*SEIMessage,
+    sei_message_count: c_uint,
+    picIdx: c_uint,
 };
 
 pub const SourceDataPacket = extern struct {
@@ -680,7 +711,10 @@ pub const VideoFormat = extern struct {
 
 pub const VideoFormatEx = extern struct {
     format: VideoFormat,
-    raw_seqhdr_data: [1024]u8, // TODO
+    data: extern union {
+        av1: AV1SeqHdr,
+        raw_seqhdr_data: [1024]u8,
+    },
 };
 
 pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
