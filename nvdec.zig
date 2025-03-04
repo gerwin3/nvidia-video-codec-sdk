@@ -243,14 +243,7 @@ pub const Decoder = struct {
     fn handle_sequence_callback(self: *Decoder, format: *nvdec_bindings.VideoFormat) !c_int {
         if (self.decoder != null) return error.DecoderReconfigurationNotSupported;
 
-        // roughly similar to NvDecoder:
-        // https://github.com/NVIDIA/video-sdk-samples/blob/aa3544dcea2fe63122e4feb83bf805ea40e58dbe/Samples/NvCodec/NvDecoder/NvDecoder.cpp#L93
-        const num_decode_surfaces: c_int = switch (format.codec) {
-            .vp9 => 12,
-            .h264, .h264_mvc, .h264_svc => 20,
-            .hevc => 20,
-            else => 8,
-        };
+        const num_decode_surfaces = format.min_num_decode_surfaces;
 
         var decode_caps = std.mem.zeroes(nvdec_bindings.DecodeCaps);
         decode_caps.eCodecType = format.codec;
