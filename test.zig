@@ -377,6 +377,26 @@ test "hevc full hd rate const qp" {
     );
 }
 
+test "default av1 full hd" {
+    try test_encoder_decoder(
+        .{
+            .codec = .{ .av1 = .{} },
+            .resolution = .{ .width = 1920, .height = 1080 },
+        },
+        long_duration,
+    );
+}
+
+test "default av1 4k" {
+    try test_encoder_decoder(
+        .{
+            .codec = .{ .av1 = .{} },
+            .resolution = .{ .width = 3840, .height = 2160 },
+        },
+        short_duration,
+    );
+}
+
 const TestColor = enum {
     red,
     green,
