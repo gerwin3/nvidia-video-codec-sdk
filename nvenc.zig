@@ -115,7 +115,6 @@ pub const H264Profile = enum {
     high,
     high_444,
     stereo,
-    svc_temporal_scalabilty,
     progressive_high,
     constrained_high,
 };
@@ -267,7 +266,6 @@ pub const Encoder = struct {
                         .high => nvenc_bindings.h264_profile_high_guid,
                         .high_444 => nvenc_bindings.h264_profile_high_444_guid,
                         .stereo => nvenc_bindings.h264_profile_stereo_guid,
-                        .svc_temporal_scalabilty => nvenc_bindings.h264_profile_svc_temporal_scalabilty,
                         .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
                         .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
                     };

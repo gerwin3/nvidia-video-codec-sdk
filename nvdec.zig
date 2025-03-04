@@ -276,7 +276,7 @@ pub const Decoder = struct {
             return error.ResolutionNotSupportedMbCountTooHigh;
         }
 
-        var decoder_create_info = std.mem.zeroes(nvdec_bindings.CreateInfo);
+        var decoder_create_info = std.mem.zeroes(nvdec_bindings.DecodeCreateInfo);
         decoder_create_info.CodecType = format.codec;
         if (self.output_format) |output_format| {
             decoder_create_info.OutputFormat = output_format;
