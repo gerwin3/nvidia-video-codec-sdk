@@ -317,12 +317,12 @@ pub const Encoder = struct {
                     };
                 }
                 if (av1_options.format) |format| {
-                    config.encodeCodecConfig.av1Config.chromaFormatIDC = 1;
-                    config.encodeCodecConfig.av1Config.inputPixelBitDepthMinus8 = switch (format) {
+                    config.encodeCodecConfig.av1Config.bitfields.chromaFormatIDC = 1;
+                    config.encodeCodecConfig.av1Config.bitfields.inputPixelBitDepthMinus8 = switch (format) {
                         .yuv420_10bit => 2,
                         .yuv420 => 0,
                     };
-                    config.encodeCodecConfig.av1Config.pixelBitDepthMinus8 = switch (format) {
+                    config.encodeCodecConfig.av1Config.bitfields.pixelBitDepthMinus8 = switch (format) {
                         .yuv420_10bit => 2,
                         .yuv420 => 0,
                     };
