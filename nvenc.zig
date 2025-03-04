@@ -115,7 +115,6 @@ pub const H264Profile = enum {
     high,
     high_444,
     stereo,
-    svc_temporal_scalabilty,
     progressive_high,
     constrained_high,
 };
@@ -133,6 +132,15 @@ pub const HEVCProfile = enum {
     frext,
 };
 
+pub const AV1Format = enum {
+    yuv420,
+    yuv420_10bit,
+};
+
+pub const AV1Profile = enum {
+    main,
+};
+
 /// Codec to use. Choose from H.264 and HEVC (H.265).
 /// Note that for each codec you can optionally select a profile and format.
 /// The profile will be forcefully applied to the encoder config. It is
@@ -145,6 +153,10 @@ pub const Codec = union(enum) {
     hevc: struct {
         profile: ?HEVCProfile = null,
         format: ?HEVCFormat = null,
+    },
+    av1: struct {
+        profile: ?AV1Profile = null,
+        format: ?AV1Format = null,
     },
 };
 
@@ -228,6 +240,7 @@ pub const Encoder = struct {
         const codec_guid = switch (options.codec) {
             .h264 => nvenc_bindings.codec_h264_guid,
             .hevc => nvenc_bindings.codec_hevc_guid,
+            .av1 => nvenc_bindings.codec_av1_guid,
         };
 
         const preset_guid = switch (options.preset) {
@@ -267,7 +280,6 @@ pub const Encoder = struct {
                         .high => nvenc_bindings.h264_profile_high_guid,
                         .high_444 => nvenc_bindings.h264_profile_high_444_guid,
                         .stereo => nvenc_bindings.h264_profile_stereo_guid,
-                        .svc_temporal_scalabilty => nvenc_bindings.h264_profile_svc_temporal_scalabilty,
                         .progressive_high => nvenc_bindings.h264_profile_progressive_high_guid,
                         .constrained_high => nvenc_bindings.h264_profile_constrained_high_guid,
                     };
@@ -295,6 +307,24 @@ pub const Encoder = struct {
                     config.encodeCodecConfig.hevcConfig.bitfields.pixelBitDepthMinus8 = switch (format) {
                         .yuv420_10bit, .yuv444_10bit => 2,
                         .yuv420, .yuv444 => 0,
+                    };
+                }
+            },
+            .av1 => |av1_options| {
+                if (av1_options.profile) |profile| {
+                    config.profileGUID = switch (profile) {
+                        .main => nvenc_bindings.av1_profile_main_guid,
+                    };
+                }
+                if (av1_options.format) |format| {
+                    config.encodeCodecConfig.av1Config.bitfields.chromaFormatIDC = 1;
+                    config.encodeCodecConfig.av1Config.bitfields.inputPixelBitDepthMinus8 = switch (format) {
+                        .yuv420_10bit => 2,
+                        .yuv420 => 0,
+                    };
+                    config.encodeCodecConfig.av1Config.bitfields.pixelBitDepthMinus8 = switch (format) {
+                        .yuv420_10bit => 2,
+                        .yuv420 => 0,
                     };
                 }
             },

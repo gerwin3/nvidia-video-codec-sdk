@@ -377,6 +377,28 @@ test "hevc full hd rate const qp" {
     );
 }
 
+test "default av1 full hd" {
+    try test_encoder_decoder(
+        .{
+            .codec = .{ .av1 = .{} },
+            .resolution = .{ .width = 1920, .height = 1080 },
+        },
+        long_duration,
+    );
+}
+
+test "default av1 4k" {
+    try test_encoder_decoder(
+        .{
+            .codec = .{ .av1 = .{} },
+            .resolution = .{ .width = 3840, .height = 2160 },
+        },
+        short_duration,
+    );
+}
+
+// TODO: more tests
+
 const TestColor = enum {
     red,
     green,
@@ -616,6 +638,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     const decoder_codec = switch (encoder_options.codec) {
         .h264 => nvdec.Codec.h264,
         .hevc => nvdec.Codec.hevc,
+        .av1 => nvdec.Codec.av1,
     };
 
     var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec, .output_format = .nv12 }, allocator);

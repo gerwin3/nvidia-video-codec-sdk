@@ -127,7 +127,8 @@ pub const VideoCodec = enum(c_uint) {
     hevc = 8,
     vp8 = 9,
     vp9 = 10,
-    numcodecs = 11,
+    av1 = 11,
+    numcodecs = 12,
     yuv420 = 1230591318,
     yv12 = 1498820914,
     nv12 = 1314271538,
@@ -169,7 +170,32 @@ pub const create_flags = struct {
     pub const prefer_CUVID: c_uint = 4;
 };
 
-pub const CreateInfo = extern struct {
+pub const AV1SeqHdr = extern struct {
+    max_width: c_uint,
+    max_height: c_uint,
+    _reserved: [1016]u8,
+};
+
+pub const DecodeCaps = extern struct {
+    eCodecType: VideoCodec,
+    eChromaFormat: VideoChromaFormat,
+    nBitDepthMinus8: c_uint,
+    _reserved1: [3]c_uint,
+    bIsSupported: u8,
+    nNumNVDECs: u8,
+    nOutputFormatMask: c_ushort,
+    nMaxWidth: c_uint,
+    nMaxHeight: c_uint,
+    nMaxMBCount: c_uint,
+    nMinWidth: c_ushort,
+    nMinHeight: c_ushort,
+    bIsHistogramSupported: u8,
+    nCounterBitDepth: u8,
+    nMaxHistogramBins: c_ushort,
+    _reserved3: [10]c_uint,
+};
+
+pub const DecodeCreateInfo = extern struct {
     ulWidth: c_ulong,
     ulHeight: c_ulong,
     ulNumDecodeSurfaces: c_ulong,
@@ -199,23 +225,8 @@ pub const CreateInfo = extern struct {
         right: c_short,
         bottom: c_short,
     },
-    _Reserved2: [5]c_ulong,
-};
-
-pub const DecodeCaps = extern struct {
-    eCodecType: VideoCodec,
-    eChromaFormat: VideoChromaFormat,
-    nBitDepthMinus8: c_uint,
-    _reserved1: [3]c_uint,
-    bIsSupported: u8,
-    _reserved2: u8,
-    nOutputFormatMask: c_ushort,
-    nMaxWidth: c_uint,
-    nMaxHeight: c_uint,
-    nMaxMBCount: c_uint,
-    nMinWidth: c_ushort,
-    nMinHeight: c_ushort,
-    _reserved3: [11]c_uint,
+    enableHistogram: c_ulong,
+    _Reserved2: [4]c_ulong,
 };
 
 pub const GetDecodeStatus = extern struct {
@@ -289,12 +300,18 @@ pub const ParserParams = extern struct {
     ulClockRate: c_uint,
     ulErrorThreshold: c_uint,
     ulMaxDisplayDelay: c_uint,
-    uReserved1: [5]c_uint,
+    bitfields: packed struct {
+        bAnnexb: bool,
+        uReserved: u31,
+    },
+    uReserved1: [4]c_uint,
     pUserData: ?*anyopaque,
     pfnSequenceCallback: ?*const fn (?*anyopaque, ?*VideoFormat) callconv(.C) c_int,
     pfnDecodePicture: ?*const fn (?*anyopaque, ?*PicParams) callconv(.C) c_int,
     pfnDisplayPicture: ?*const fn (?*anyopaque, ?*ParserDispInfo) callconv(.C) c_int,
-    pvReserved2: [7]?*anyopaque,
+    pfnGetOperatingPoint: ?*const fn (?*anyopaque, ?*OperatingPointInfo) callconv(.C) c_int,
+    pfnGetSEIMsg: ?*const fn (?*anyopaque, ?*SEIMessageInfo) callconv(.C) c_int,
+    pvReserved2: [5]?*anyopaque,
     pExtVideoInfo: ?*VideoFormatEx,
 };
 
@@ -321,8 +338,165 @@ pub const PicParams = extern struct {
         hevc: HEVCPicParams,
         vp8: VP8PicParams,
         vp9: VP9PicParams,
+        av1: AV1PicParams,
         _CodecReserved: [1024]c_uint,
     },
+};
+
+pub const AV1PicParams = extern struct {
+    width: c_uint,
+    height: c_uint,
+    frame_offset: c_uint,
+    decodePicIdx: c_int,
+    sequence_header: packed struct {
+        profile: u3,
+        use_128x128_superblock: bool,
+        subsampling_x: bool,
+        subsampling_y: bool,
+        mono_chrome: bool,
+        bit_depth_minus8: u4,
+        enable_filter_intra: bool,
+        enable_intra_edge_filter: bool,
+        enable_interintra_compound: bool,
+        enable_masked_compound: bool,
+        enable_dual_filter: bool,
+        enable_order_hint: bool,
+        order_hint_bits_minus1: u3,
+        enable_jnt_comp: bool,
+        enable_superres: bool,
+        enable_cdef: bool,
+        enable_restoration: bool,
+        enable_fgs: bool,
+        _reserved0_7bits: u7,
+    },
+    frame_header: packed struct {
+        frame_type: u2,
+        show_frame: bool,
+        disable_cdf_update: bool,
+        allow_screen_content_tools: bool,
+        force_integer_mv: bool,
+        coded_denom: u3,
+        allow_intrabc: bool,
+        allow_high_precision_mv: bool,
+        interp_filter: u3,
+        switchable_motion_mode: bool,
+        use_ref_frame_mvs: bool,
+        disable_frame_end_update_cdf: bool,
+        delta_q_present: bool,
+        delta_q_res: u2,
+        using_qmatrix: bool,
+        coded_lossless: bool,
+        use_superres: bool,
+        tx_mode: u2,
+        reference_mode: bool,
+        allow_warped_motion: bool,
+        reduced_tx_set: bool,
+        skip_mode: bool,
+        _reserved1_3bits: u3,
+    },
+    tiling_info: packed struct {
+        num_tile_cols: u8,
+        num_tile_rows: u8,
+        context_update_tile_id: u16,
+    },
+    tile_widths: [64]c_ushort,
+    tile_heights: [64]c_ushort,
+    cdef_bitfields: packed struct {
+        cdef_damping_minus_3: u2,
+        cdef_bits: u2,
+        _reserved2_4bits: u4,
+    },
+    cdef_y_strength: [8]u8,
+    cdef_uv_strength: [8]u8,
+    SkipModeFrames: packed struct {
+        SkipModeFrame0: u4,
+        SkipModeFrame1: u4,
+    },
+    base_qindex: u8,
+    qp_y_dc_delta_q: i8,
+    qp_u_dc_delta_q: i8,
+    qp_v_dc_delta_q: i8,
+    qp_u_ac_delta_q: i8,
+    qp_v_ac_delta_q: i8,
+    qm_y: u8,
+    qm_u: u8,
+    qm_v: u8,
+    segmentation_bitfields: packed struct {
+        segmentation_enabled: bool,
+        segmentation_update_map: bool,
+        segmentation_update_data: bool,
+        segmentation_temporal_update: bool,
+        _reserved3_4bits: u4,
+    },
+    segmentation_feature_data: [8][8]c_short,
+    segmentation_feature_mask: [8]u8,
+    loop_filter_level: [2]u8,
+    loop_filter_level_u: u8,
+    loop_filter_level_v: u8,
+    loop_filter_sharpness: u8,
+    loop_filter_ref_deltas: [8]i8,
+    loop_filter_mode_deltas: [2]i8,
+    loop_filter_bitfields: packed struct {
+        loop_filter_delta_enabled: bool,
+        loop_filter_delta_update: bool,
+        delta_lf_present: bool,
+        delta_lf_res: u2,
+        delta_lf_multi: bool,
+        _reserved4_2bits: u2,
+    },
+    lr_unit_size: [3]u8,
+    lr_type: [3]u8,
+    primary_ref_frame: u8,
+    ref_frame_map: [8]u8,
+    reference_frames_bitfields: packed struct {
+        temporal_layer_id: u4,
+        spatial_layer_id: u4,
+    },
+    _reserved5_32bits: [4]u8,
+    ref_frame: [7]extern struct {
+        width: c_uint,
+        height: c_uint,
+        index: u8,
+        _reserved24Bits: [3]u8,
+    },
+    global_motion: [7]extern struct {
+        bitfields: packed struct {
+            invalid: bool,
+            wmtype: u2,
+            _reserved5Bits: u5,
+        },
+        _reserved24Bits: [3]u8,
+        wmmat: [6]c_int,
+    },
+    film_grain_params_bitfields: packed struct {
+        apply_grain: bool,
+        overlap_flag: bool,
+        scaling_shift_minus8: u2,
+        chroma_scaling_from_luma: bool,
+        ar_coeff_lag: u2,
+        ar_coeff_shift_minus6: u2,
+        grain_scale_shift: u2,
+        clip_to_restricted_range: bool,
+        _reserved6_4bits: u4,
+    },
+    num_y_points: u8,
+    scaling_points_y: [14][2]u8,
+    num_cb_points: u8,
+    scaling_points_cb: [10][2]u8,
+    num_cr_points: u8,
+    scaling_points_cr: [10][2]u8,
+    _reserved7_8bits: u8,
+    random_seed: c_ushort,
+    ar_coeffs_y: [24]c_short,
+    ar_coeffs_cb: [25]c_short,
+    ar_coeffs_cr: [25]c_short,
+    cb_mult: u8,
+    cb_luma_mult: u8,
+    cb_offset: c_short,
+    cr_mult: u8,
+    cr_luma_mult: u8,
+    cr_offset: c_short,
+    _reserved: [7]c_int,
 };
 
 pub const H264PicParams = extern struct {
@@ -614,6 +788,18 @@ pub const VP9PicParams = extern struct {
     reserved128Bits: [4]c_uint,
 };
 
+pub const OperatingPointInfo = extern struct {
+    codec: VideoCodec,
+    data: extern union {
+        av1: extern struct {
+            operating_points_cnt: u8,
+            reserved24_bits: [3]u8,
+            operating_points_idc: [32]c_ushort,
+        },
+        _CodecReserved: [1024]u8,
+    },
+};
+
 pub const ProcParams = extern struct {
     progressive_frame: c_int,
     second_field: c_int,
@@ -629,7 +815,21 @@ pub const ProcParams = extern struct {
     _Reserved1: c_uint,
     output_stream: cuda_bindings.Stream,
     _Reserved: [46]c_uint,
-    _Reserved2: [2]?*anyopaque,
+    histogram_dptr: ?*c_ulonglong,
+    _Reserved2: [1]?*anyopaque,
+};
+
+pub const SEIMessage = extern struct {
+    sei_message_type: u8,
+    reserved: [3]u8,
+    sei_message_size: c_uint,
+};
+
+pub const SEIMessageInfo = extern struct {
+    pSEIData: ?*anyopaque,
+    pSEIMessage: ?*SEIMessage,
+    sei_message_count: c_uint,
+    picIdx: c_uint,
 };
 
 pub const SourceDataPacket = extern struct {
@@ -674,11 +874,14 @@ pub const VideoFormat = extern struct {
 
 pub const VideoFormatEx = extern struct {
     format: VideoFormat,
-    raw_seqhdr_data: [1024]u8,
+    data: extern union {
+        av1: AV1SeqHdr,
+        raw_seqhdr_data: [1024]u8,
+    },
 };
 
 pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
-pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result = null;
+pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result = null;
 pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) Result = null;
 pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result = null;
 pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
@@ -703,7 +906,7 @@ pub fn load() !void {
         else => @panic("unsupported operating system"),
     };
     cuvidGetDecoderCaps = nvcuvid.lookup(*const fn (pdc: ?*DecodeCaps) Result, "cuvidGetDecoderCaps") orelse @panic("cuvid library invalid");
-    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
+    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
     cuvidDestroyDecoder = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder) Result, "cuvidDestroyDecoder") orelse @panic("cuvid library invalid");
     cuvidDecodePicture = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result, "cuvidDecodePicture") orelse @panic("cuvid library invalid");
     cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");

@@ -76,7 +76,7 @@ ffmpeg.
 
 ### Video Codec SDK Compatibility Matrix
 
-The Zig wrapper is based on the headers of SDK version 10.0. Since all headers
+The Zig wrapper is based on the headers of SDK version 12.0. Since all headers
 are compatible, this ensures compatibility with the corresponding SDK version,
 as well as CUDA and driver versions and above.
 
@@ -87,10 +87,10 @@ For your convenience, find the full compatibility matrix below:
 | 13.0                    | 570.0 / 570.0                          | 11.0                 |
 | 12.2                    | 551.76 / 550.54.14                     | 11.0                 |
 | 12.1                    | 531.61 / 530.41.03                     | 11.0                 |
-| 12.0                    | 522.25 / 520.56.06                     | 11.0                 |
+| **12.0**                | **522.25 / 520.56.06**                 | **11.0**             |
 | 11.1                    | 471.41 / 470.57.02                     | 11.0                 |
 | 11.0                    | 456.71 / 455.27                        | 11.0                 |
-| **10.0**                | **445.87 / 450.51**                    | **10.1**             |
+| 10.0                    | 445.87 / 450.51                        | 10.1                 |
 | 9.1                     | 436.15 / 435.21                        | 10.0                 |
 | 9.0                     | 418.81 / 418.30                        | 10.0                 |
 | 8.2                     | 397.93 / 396.24                        | 8.0                  |
