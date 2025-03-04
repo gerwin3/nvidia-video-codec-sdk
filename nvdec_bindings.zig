@@ -176,7 +176,26 @@ pub const AV1SeqHdr = extern struct {
     _reserved: [1016]u8,
 };
 
-pub const CreateInfo = extern struct {
+pub const DecodeCaps = extern struct {
+    eCodecType: VideoCodec,
+    eChromaFormat: VideoChromaFormat,
+    nBitDepthMinus8: c_uint,
+    _reserved1: [3]c_uint,
+    bIsSupported: u8,
+    nNumNVDECs: u8,
+    nOutputFormatMask: c_ushort,
+    nMaxWidth: c_uint,
+    nMaxHeight: c_uint,
+    nMaxMBCount: c_uint,
+    nMinWidth: c_ushort,
+    nMinHeight: c_ushort,
+    bIsHistogramSupported: u8,
+    nCounterBitDepth: u8,
+    nMaxHistogramBins: c_ushort,
+    _reserved3: [10]c_uint,
+};
+
+pub const DecodeCreateInfo = extern struct {
     ulWidth: c_ulong,
     ulHeight: c_ulong,
     ulNumDecodeSurfaces: c_ulong,
@@ -208,25 +227,6 @@ pub const CreateInfo = extern struct {
     },
     enableHistogram: c_ulong,
     _Reserved2: [4]c_ulong,
-};
-
-pub const DecodeCaps = extern struct {
-    eCodecType: VideoCodec,
-    eChromaFormat: VideoChromaFormat,
-    nBitDepthMinus8: c_uint,
-    _reserved1: [3]c_uint,
-    bIsSupported: u8,
-    nNumNVDECs: u8,
-    nOutputFormatMask: c_ushort,
-    nMaxWidth: c_uint,
-    nMaxHeight: c_uint,
-    nMaxMBCount: c_uint,
-    nMinWidth: c_ushort,
-    nMinHeight: c_ushort,
-    bIsHistogramSupported: u8,
-    nCounterBitDepth: u8,
-    nMaxHistogramBins: c_ushort,
-    _reserved3: [10]c_uint,
 };
 
 pub const GetDecodeStatus = extern struct {
@@ -426,7 +426,7 @@ pub const AV1PicParams = extern struct {
         segmentation_update_map: bool,
         segmentation_update_data: bool,
         segmentation_temporal_update: bool,
-        _reserved3_4bits: u84,
+        _reserved3_4bits: u4,
     },
     segmentation_feature_data: [8][8]c_short,
     segmentation_feature_mask: [8]u8,
@@ -881,7 +881,7 @@ pub const VideoFormatEx = extern struct {
 };
 
 pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
-pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result = null;
+pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result = null;
 pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) Result = null;
 pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result = null;
 pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
@@ -906,7 +906,7 @@ pub fn load() !void {
         else => @panic("unsupported operating system"),
     };
     cuvidGetDecoderCaps = nvcuvid.lookup(*const fn (pdc: ?*DecodeCaps) Result, "cuvidGetDecoderCaps") orelse @panic("cuvid library invalid");
-    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*CreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
+    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
     cuvidDestroyDecoder = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder) Result, "cuvidDestroyDecoder") orelse @panic("cuvid library invalid");
     cuvidDecodePicture = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result, "cuvidDecodePicture") orelse @panic("cuvid library invalid");
     cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");

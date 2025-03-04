@@ -412,7 +412,7 @@ pub const OutputPtr = ?*opaque {};
 pub const RegisteredPtr = ?*opaque {};
 pub const CustreamPtr = ?*opaque {};
 
-pub const AV1OBUPayload = SeiPayload;
+pub const AV1OBUPayload = SEIPayload;
 
 pub const ClockTimestampSet = extern struct {
     bitfields: packed struct {
@@ -703,16 +703,16 @@ pub const FilmGrainParamsAV1 = extern struct {
         grainScaleShift: u2,
         _reserved: u8,
     },
-    pointYValue: u8[14],
-    pointYScaling: u8[14],
-    pointCbValue: u8[10],
-    pointCbScaling: u8[10],
-    pointCrValue: u8[10],
-    pointCrScaling: u8[10],
-    arCoeffsYPlus128: u8[24],
-    arCoeffsCbPlus128: u8[25],
-    arCoeffsCrPlus128: u8[25],
-    _reserved: u8[2],
+    pointYValue: [14]u8,
+    pointYScaling: [14]u8,
+    pointCbValue: [10]u8,
+    pointCbScaling: [10]u8,
+    pointCrValue: [10]u8,
+    pointCrScaling: [10]u8,
+    arCoeffsYPlus128: [24]u8,
+    arCoeffsCbPlus128: [25]u8,
+    arCoeffsCrPlus128: [25]u8,
+    _reserved: [2]u8,
     cbMult: u8,
     cbLumaMult: u8,
     cbOffset: u16,
@@ -875,8 +875,8 @@ pub const PicParamsAV1 = extern struct {
     _reserved: u32,
     obuPayloadArray: *?AV1OBUPayload,
     filmGrainParams: *?FilmGrainParamsAV1,
-    _reserved1: u32[247],
-    _reserved2: ?*anyopaque[61],
+    _reserved1: [247]u32,
+    _reserved2: [61]?*anyopaque,
 };
 
 pub const PicParamsH264 = extern struct {
@@ -889,7 +889,7 @@ pub const PicParamsH264 = extern struct {
     sliceTypeData: [*c]u8,
     sliceTypeArrayCnt: u32,
     seiPayloadArrayCnt: u32,
-    seiPayloadArray: [*c]SeiPayload,
+    seiPayloadArray: [*c]SEIPayload,
     sliceMode: u32,
     sliceModeData: u32,
     ltrMarkFrameIdx: u32,
@@ -931,7 +931,7 @@ pub const PicParamsHEVC = extern struct {
     ltrUsageMode: u32,
     seiPayloadArrayCnt: u32,
     _reserved: u32,
-    seiPayloadArray: [*c]SeiPayload,
+    seiPayloadArray: [*c]SEIPayload,
     timeCode: TimeCode,
     _reserved2: [237]u32,
     _reserved3: [61]?*anyopaque,
@@ -1000,7 +1000,7 @@ pub const RegisterResource = extern struct {
     _reserved2: [61]?*anyopaque,
 };
 
-pub const SeiPayload = extern struct {
+pub const SEIPayload = extern struct {
     payloadSize: u32,
     payloadType: u32,
     payload: [*c]u8,
@@ -1066,8 +1066,7 @@ pub const ApiFunctionList = extern struct {
     nvEncSetIOCudaStreams: ?*const fn (?*anyopaque, CustreamPtr, CustreamPtr) callconv(.C) Status,
     nvEncGetEncodePresetConfigEx: ?*const fn (?*anyopaque, GUID, GUID, TuningInfo, ?*PresetConfig) callconv(.C) Status,
     __nvEncGetSequenceParamEx: ?*const fn (?*anyopaque, ?*InitializeParams, ?*SequenceParamPayload) callconv(.C) Status, // not included in bindings
-    __nvEncSetIOCudaStreams: ?*anyopaque, // not included in bindings
-    _reserved2: [279]?*anyopaque,
+    _reserved2: [277]?*anyopaque,
 };
 
 pub var nvEncGetEncodePresetConfig: ?*const fn (?*anyopaque, GUID, GUID, ?*PresetConfig) callconv(.C) Status = null;
