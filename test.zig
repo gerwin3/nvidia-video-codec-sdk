@@ -638,6 +638,7 @@ fn test_encoder_decoder(encoder_options: nvenc.EncoderOptions, num_frames: usize
     const decoder_codec = switch (encoder_options.codec) {
         .h264 => nvdec.Codec.h264,
         .hevc => nvdec.Codec.hevc,
+        .av1 => nvdec.Codec.av1,
     };
 
     var decoder = try nvdec.Decoder.create(&context, .{ .codec = decoder_codec, .output_format = .nv12 }, allocator);
