@@ -345,8 +345,10 @@ pub const Decoder = struct {
     }
 
     fn handle_display_picture(self: *Decoder, parser_disp_info: *nvdec_bindings.ParserDispInfo) !void {
+        const format_info = self.format_info.?;
+
         // Fix for https://forums.developer.nvidia.com/t/out-of-order-frames-from-nvdec/67779/5
-        parser_disp_info.progressive_frame = self.format.progressive_sequence;
+        parser_disp_info.progressive_frame = format_info.progressive_sequence;
 
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.progressive_frame;
@@ -381,7 +383,6 @@ pub const Decoder = struct {
         if (get_decode_status.decodeStatus == .err) nvdec_log.err("decoding error", .{});
         if (get_decode_status.decodeStatus == .err_concealed) nvdec_log.warn("decoding error concealed", .{});
 
-        const format_info = self.format_info.?;
         const format = format_info.output_format;
         const width = format_info.frame_width;
         const height = format_info.frame_height;
