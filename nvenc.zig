@@ -2,6 +2,8 @@ const std = @import("std");
 
 const nvenc_bindings = @import("nvenc_bindings");
 
+const nvenc_log = std.log.scoped(.nvenc_log);
+
 pub const cuda = @import("cuda");
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
@@ -352,6 +354,11 @@ pub const Encoder = struct {
             }
         }
 
+        if (config.rcParams.lookaheadDepth != 0) {
+            nvenc_log.warn("lookahead is not supported: lookaheadDepth set to 0 (was {})", .{config.rcParams.lookaheadDepth});
+            config.rcParams.lookaheadDepth = 0;
+        }
+
         var initialize_params = std.mem.zeroes(nvenc_bindings.InitializeParams);
         initialize_params.version = nvenc_bindings.initialize_params_ver;
         initialize_params.encodeConfig = &config;
@@ -522,7 +529,10 @@ pub const Encoder = struct {
             lock_bitstream.version = nvenc_bindings.lock_bitstream_ver;
             lock_bitstream.outputBitstream = input_output_pair.output_bitstream;
             lock_bitstream.bitfields.doNotWait = false; // this is mandatory in sync mode
-            status(nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream)) catch unreachable;
+            // unreachable: nvEncLockBitstream could fail if there is some
+            // issue with the buffer (such as lookahead being enabled) but that
+            // would mean we did not control NVENC parameters so it is a bug
+            nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream) catch unreachable;
 
             defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, input_output_pair.output_bitstream)) catch unreachable;
 
@@ -532,6 +542,10 @@ pub const Encoder = struct {
             try writer.writeAll(slice);
         }
     }
+
+    // pub fn last_error(self: *Encoder) [*c]const u8 {
+    //     return nvenc_bindings.nvEncGetLastErrorString.?(self.encoder);
+    // }
 };
 
 fn status(ret: nvenc_bindings.Status) Error!void {
