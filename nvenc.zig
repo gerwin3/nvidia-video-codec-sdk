@@ -532,7 +532,7 @@ pub const Encoder = struct {
             // unreachable: nvEncLockBitstream could fail if there is some
             // issue with the buffer (such as lookahead being enabled) but that
             // would mean we did not control NVENC parameters so it is a bug
-            nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream) catch unreachable;
+            status(nvenc_bindings.nvEncLockBitstream.?(self.encoder, &lock_bitstream)) catch unreachable;
 
             defer status(nvenc_bindings.nvEncUnlockBitstream.?(self.encoder, input_output_pair.output_bitstream)) catch unreachable;
 

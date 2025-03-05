@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("test.zig"),
         .target = target,
         .optimize = optimize,
-        // .filters = &.{"h264 full hd p3"}, // TODO
+        // TODO .filters = &.{"h264 full hd p6"},
     });
     test_suite.root_module.addImport("cuda", cuda_modules.cuda);
     test_suite.root_module.addImport("nvdec", nvdec);
