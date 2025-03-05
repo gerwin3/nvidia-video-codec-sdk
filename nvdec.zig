@@ -132,6 +132,7 @@ pub const Decoder = struct {
         frame_height: u32,
         surface_height: u32,
         output_format: nvdec_bindings.VideoSurfaceFormat,
+        progressive_sequence: c_int,
     } = null,
 
     error_state: ?Error = null,
@@ -327,11 +328,14 @@ pub const Decoder = struct {
             // surface height (chroma offset) is always 2-aligned
             .surface_height = @intCast(format.coded_height + (format.coded_height % 2)),
             .output_format = decoder_create_info.OutputFormat,
+            .progressive_sequence = format.progressive_sequence,
         };
 
         try self.context.push();
         try result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info));
         try self.context.pop();
+
+        std.debug.print("{any}\n", .{decoder_create_info}); // TODO
 
         return num_decode_surfaces;
     }
@@ -341,6 +345,9 @@ pub const Decoder = struct {
     }
 
     fn handle_display_picture(self: *Decoder, parser_disp_info: *nvdec_bindings.ParserDispInfo) !void {
+        // Fix for https://forums.developer.nvidia.com/t/out-of-order-frames-from-nvdec/67779/5
+        parser_disp_info.progressive_frame = self.format.progressive_sequence;
+
         var proc_params = std.mem.zeroes(nvdec_bindings.ProcParams);
         proc_params.progressive_frame = parser_disp_info.progressive_frame;
         proc_params.second_field = parser_disp_info.repeat_first_field + 1;
