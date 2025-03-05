@@ -90,19 +90,17 @@ test "h264 full hd p2" {
     try test_h264_full_hd_preset(.p2);
 }
 
-// TODO: uncomment later
+test "h264 full hd p3" {
+    try test_h264_full_hd_preset(.p3);
+}
 
-// test "h264 full hd p3" {
-//     try test_h264_full_hd_preset(.p3);
-// }
+test "h264 full hd p4" {
+    try test_h264_full_hd_preset(.p4);
+}
 
-// test "h264 full hd p4" {
-//     try test_h264_full_hd_preset(.p4);
-// }
-
-// test "h264 full hd p5" {
-//     try test_h264_full_hd_preset(.p5);
-// }
+test "h264 full hd p5" {
+    try test_h264_full_hd_preset(.p5);
+}
 
 // TODO: This one give invalid param.
 // test "h264 full hd p6" {
@@ -274,34 +272,29 @@ test "hevc full hd p1" {
     try test_hevc_full_hd_preset(.p1);
 }
 
-// // TODO: super broken (segfault)
-// test "hevc full hd p2" {
-//     try test_hevc_full_hd_preset(.p2);
-// }
+test "hevc full hd p2" {
+    try test_hevc_full_hd_preset(.p2);
+}
 
 test "hevc full hd p3" {
     try test_hevc_full_hd_preset(.p3);
 }
 
-// // TODO: super broken (segfault same as p2)
-// test "hevc full hd p4" {
-//     try test_hevc_full_hd_preset(.p4);
-// }
+test "hevc full hd p4" {
+    try test_hevc_full_hd_preset(.p4);
+}
 
-// // TODO: super broken (segfault same as p2)
-// test "hevc full hd p5" {
-//     try test_hevc_full_hd_preset(.p5);
-// }
+test "hevc full hd p5" {
+    try test_hevc_full_hd_preset(.p5);
+}
 
-// // TODO: super broken (segfault same as p2)
-// test "hevc full hd p6" {
-//     try test_hevc_full_hd_preset(.p6);
-// }
+test "hevc full hd p6" {
+    try test_hevc_full_hd_preset(.p6);
+}
 
-// // TODO: super broken (segfault same as p2)
-// test "hevc full hd p7" {
-//     try test_hevc_full_hd_preset(.p7);
-// }
+test "hevc full hd p7" {
+    try test_hevc_full_hd_preset(.p7);
+}
 
 test "hevc full hd p1 tuning" {
     inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
@@ -317,20 +310,19 @@ test "hevc full hd p1 tuning" {
     }
 }
 
-// // TODO: super broken (segfault same as p2)
-// test "hevc full hd p7 tuning" {
-//     inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
-//         try test_encoder_decoder(
-//             .{
-//                 .codec = .{ .hevc = .{} },
-//                 .preset = .p7,
-//                 .tuning = @field(nvenc.Tuning, tuning.name),
-//                 .resolution = .{ .width = 1920, .height = 1080 },
-//             },
-//             short_duration,
-//         );
-//     }
-// }
+test "hevc full hd p7 tuning" {
+    inline for (std.meta.fields(nvenc.Tuning)) |tuning| {
+        try test_encoder_decoder(
+            .{
+                .codec = .{ .hevc = .{} },
+                .preset = .p7,
+                .tuning = @field(nvenc.Tuning, tuning.name),
+                .resolution = .{ .width = 1920, .height = 1080 },
+            },
+            short_duration,
+        );
+    }
+}
 
 test "hevc full hd idr interval 2" {
     try test_encoder_decoder(
