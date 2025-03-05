@@ -115,10 +115,20 @@ pub const Decoder = struct {
     // many decoders:
     // https://forums.developer.nvidia.com/t/sharing-the-same-cuda-context-for-encoding-nvenc-and-decoding-nvdec/59285/13
 
+    /// "ulNumOutputSurfaces should be decided optimally after due
+    /// experimentation for balancing decoder throughput and memory
+    /// consumption."
+    /// num_output_surfaces is the MAXIMUM number of simultaneously mapped
+    /// frames.
+    /// I have decided it to be 4. In practice NVDEC will buffer max one or two
+    /// anyway. If we happen to hit some case where it is more then decoding
+    /// will stall for a bit.
     const num_output_surfaces = 4;
 
-    // Buffer size 4 should suffice since that is the buffer size NVDEC uses
-    // internally for the decoding output queue.
+    /// In the most extreme case we will have cur_frame_data = null (no
+    /// borrowed frame that is mapped) and all output surfaces are mapped:
+    /// In which case we would require the output buffer to hold the maximum
+    /// number of mapped frames, which is num_output_surfaces.
     const OutputBuffer = std.fifo.LinearFifo(Frame, .{ .Static = num_output_surfaces });
 
     context: *cuda.Context,
@@ -161,7 +171,7 @@ pub const Decoder = struct {
 
         var parser_params = std.mem.zeroes(nvdec_bindings.ParserParams);
         parser_params.CodecType = options.codec;
-        parser_params.ulMaxNumDecodeSurfaces = 1;
+        parser_params.ulMaxNumDecodeSurfaces = 1; // dummy value
         parser_params.ulMaxDisplayDelay = 0; // always low-latency
         parser_params.pUserData = self;
         parser_params.pfnSequenceCallback = handle_sequence_callback_passthrough;
@@ -201,11 +211,6 @@ pub const Decoder = struct {
         if (self.cur_frame_data) |frame_data| {
             result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
             self.cur_frame_data = null;
-        }
-
-        if (self.output_buffer.readItem()) |frame| {
-            self.cur_frame_data = frame.data.luma;
-            return frame;
         }
 
         var packet = std.mem.zeroes(nvdec_bindings.SourceDataPacket);
@@ -251,9 +256,9 @@ pub const Decoder = struct {
         decode_caps.eChromaFormat = format.chroma_format;
         decode_caps.nBitDepthMinus8 = format.bit_depth_luma_minus8;
 
-        try self.context.push();
+        self.context.push() catch unreachable;
         try result(nvdec_bindings.cuvidGetDecoderCaps.?(&decode_caps));
-        try self.context.pop();
+        self.context.pop() catch unreachable;
 
         if (decode_caps.bIsSupported == 0) {
             nvdec_log.err("codec not supported (codec = {})", .{decode_caps.eCodecType});
@@ -309,6 +314,7 @@ pub const Decoder = struct {
         // value for ulNumOutputSurfaces, therefore, depends upon how the
         // downstream functions that follow the decoding stage are processing
         // the data."
+        // See num_output_surfaces for more information on the chosen value.
         decoder_create_info.ulNumOutputSurfaces = num_output_surfaces;
         decoder_create_info.ulCreationFlags = nvdec_bindings.create_flags.prefer_CUVID;
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
@@ -331,11 +337,9 @@ pub const Decoder = struct {
             .progressive_sequence = format.progressive_sequence,
         };
 
-        try self.context.push();
+        self.context.push() catch unreachable;
         try result(nvdec_bindings.cuvidCreateDecoder.?(&self.decoder, &decoder_create_info));
-        try self.context.pop();
-
-        std.debug.print("{any}\n", .{decoder_create_info}); // TODO
+        self.context.pop() catch unreachable;
 
         return num_decode_surfaces;
     }
@@ -362,21 +366,18 @@ pub const Decoder = struct {
         var frame_data: cuda.DevicePtr = 0;
         var frame_pitch: c_uint = 0;
 
-        try self.context.push();
-        try result(nvdec_bindings.cuvidMapVideoFrame64.?(
-            self.decoder,
-            parser_disp_info.picture_index,
-            &frame_data,
-            &frame_pitch,
-            &proc_params,
-        ));
-        errdefer result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
-        try self.context.pop();
+        self.context.push() catch unreachable;
+        try result(nvdec_bindings.cuvidMapVideoFrame64.?(self.decoder, parser_disp_info.picture_index, &frame_data, &frame_pitch, &proc_params));
+        self.context.pop() catch unreachable;
+        errdefer {
+            self.context.push() catch unreachable;
+            result(nvdec_bindings.cuvidUnmapVideoFrame64.?(self.decoder, frame_data)) catch unreachable;
+            self.context.pop() catch unreachable;
+        }
 
         std.debug.assert(frame_data != 0);
 
-        // NOTE: Doing this after mapping operation since NvDecoder does it
-        // too, probably for good reasons.
+        // stall decoding only after having mapped the video frame
         var get_decode_status = std.mem.zeroes(nvdec_bindings.GetDecodeStatus);
         result(nvdec_bindings.cuvidGetDecodeStatus.?(self.decoder, parser_disp_info.picture_index, &get_decode_status)) catch unreachable;
 
@@ -406,9 +407,10 @@ pub const Decoder = struct {
             .timestamp = @intCast(parser_disp_info.timestamp),
         };
 
-        // NOTE: If this unreachable ever hits it means that my assumption that
-        // NVDEC will never buffer more than 4 frames for dispatch at a time is
-        // incorrect. Increase num output surfaces (buffer size) as needed.
+        // unreachable: Should not be possible to fill up the output buffer
+        // since it corresponds to the number of surfaces we have mapped
+        // simultaneously which corresponds to num_output_surfaces (and
+        // output_buffer has size = num_output_surfaces).
         self.output_buffer.writeItem(frame) catch unreachable;
     }
 };
