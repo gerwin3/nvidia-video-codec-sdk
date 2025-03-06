@@ -22,8 +22,8 @@ A wrapper around the NVIDIA Video Codec (NVENC and NVDEC) for Zig.
 
 This library requires at least:
 
-* CUDA version 10.1 or higher.
-* NVIDIA driver 445.87 (Windows), 450.51 (Linux) or higher.
+* CUDA version 12.0 or higher.
+* NVIDIA driver 522.25 (Windows), 520.56.06 (Linux) or higher.
 
 Older versions may work but are not tested.
 
@@ -59,26 +59,29 @@ your_compilation.root_module.addImport("nvenc", nvenc_dep.module("nvenc"));
 
 See the `examples` directory for usage.
 
-TODO: Note about `b.dependency("nvdec", .{ ..., .@"add-pypi-rpath" = true, })`.
+### Include PyPi-compatible rpath
+
+Enable the `add-pypi-rpath` flag to add a runtime path to your executable that
+can link to the PyPi NVIDIA packages automatically. Use this if you are
+building a Python package and depend on
+[`cuda-python`](https://pypi.org/project/cuda-python/).
 
 ## NVIDIA Driver and CUDA
 
-This library does not link to the CUDA runtime, the NVDEC and NVENC libraries
-at all during build time. Instead, these libraries are loaded during runtime.
-Ensure that you have the NVIDIA driver and CUDA installed and they are present
-in your library search path. If you have some kind of custom setup you may
-patch your `rpath` to direct library loading to the correct path.
+This library dynamically loads the NVIDIA libraries during runtime. During
+build time there is no linking at all. It is expected that CUDA, NVDEC and
+NVENC are installed on the machine where the library is used. Linking at
+runtime makes the library more portable and there is no need for complicated
+build steps. This is the same approach as taken by Ffmpeg.
 
-Note that many projects choose to link to CUDA stubs during compilation. This
-seems unnecessary to me so I opted no to. Instead we rely on `dlopen` and
-friends to load NVIDIA dependencies. This is the same approach as taken by
-ffmpeg.
+If you have some kind of custom setup you may patch your `rpath` to direct
+library loading to the correct path.
 
 ### Video Codec SDK Compatibility Matrix
 
 The Zig wrapper is based on the headers of SDK version 12.0. Since all headers
-are compatible, this ensures compatibility with the corresponding SDK version,
-as well as CUDA and driver versions and above.
+are forward compatible, this ensures compatibility with the corresponding SDK
+version, as well as CUDA and driver versions and above.
 
 For your convenience, find the full compatibility matrix below:
 
