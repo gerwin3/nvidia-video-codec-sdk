@@ -2,7 +2,7 @@ const std = @import("std");
 
 const nvdec_bindings = @import("nvdec_bindings");
 
-const nvdec_log = std.log.scoped(.nvdec_log);
+const nvdec_log = std.log.scoped(.nvdec);
 
 pub const cuda = @import("cuda");
 

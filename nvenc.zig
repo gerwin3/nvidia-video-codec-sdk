@@ -2,7 +2,7 @@ const std = @import("std");
 
 const nvenc_bindings = @import("nvenc_bindings");
 
-const nvenc_log = std.log.scoped(.nvenc_log);
+const nvenc_log = std.log.scoped(.nvenc);
 
 pub const cuda = @import("cuda");
 
