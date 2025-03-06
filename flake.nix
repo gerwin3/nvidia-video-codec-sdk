@@ -9,7 +9,7 @@
       flake = false;
     };
     zig = {
-      url = "github:mitchellh/zig-overlay";
+      url = "github:mitchellh/zig-overlay/3592f7125670a97ddf83b1758e5e5e3f6bdb477d"; # TODO: https://github.com/mitchellh/zig-overlay/issues/69
       inputs.nixpkgs.follows = "nixpkgs";
     };
     zls = {
