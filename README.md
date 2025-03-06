@@ -66,6 +66,17 @@ can link to the PyPi NVIDIA packages automatically. Use this if you are
 building a Python package and depend on
 [`cuda-python`](https://pypi.org/project/cuda-python/).
 
+Specify the flag by adding it to the `dependency` call:
+
+```zig
+const nvdec_dep = b.dependency("nvdec", .{
+    .target = target,
+    .optimize = optimize,
+    .@"add-pypi-rpath" = true,
+});
+your_compilation.root_module.addImport("nvdec", nvdec_dep.module("nvdec"));
+```
+
 ## NVIDIA Driver and CUDA
 
 This library dynamically loads the NVIDIA libraries during runtime. During
