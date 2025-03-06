@@ -13,9 +13,10 @@ pub fn build(b: *std.Build) !void {
     const modules = .{ nvdec, nvenc };
     inline for (modules) |module| {
         if (add_pypi_rpath) {
-            // Through this trick any downstream library that uses nvdec or nvenc will automatically
-            // have extra rpaths which will allow it to load from the PyPI installation location, assuming
-            // the library is installed through PyPI as well.
+            // Through this trick any downstream library that uses nvdec or
+            // nvenc will automatically have extra rpaths which will allow it
+            // to load from the PyPI installation location, assuming the
+            // library is installed through PyPI as well.
             switch (target.result.os.tag) {
                 .linux => module.addRPathSpecial("$ORIGIN/../../nvidia/cuda_runtime/lib"),
                 .macos => module.addRPathSpecial("@loader_path/../../nvidia/cuda_runtime/lib"),
@@ -29,7 +30,6 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = b.path("test.zig"),
         .target = target,
         .optimize = optimize,
-        // TODO .filters = &.{"h264 full hd p6"},
     });
     test_suite.root_module.addImport("cuda", cuda_modules.cuda);
     test_suite.root_module.addImport("nvdec", nvdec);
@@ -50,9 +50,10 @@ fn addCuda(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builti
         .target = target,
         .optimize = optimize,
     });
-    // We will be loading the NVIDIA libraries dynamically but they still require libc.
-    // Settings link_libc = true here will cause libc to be linked by dependents even
-    // though we are exporting a module rather than a library.
+    // We will be loading the NVIDIA libraries dynamically but they still
+    // require libc. Settings link_libc = true here will cause libc to be
+    // linked by dependents even though we are exporting a module rather than a
+    // library.
     cuda_bindings.link_libc = true;
 
     // Zig-friendly wrapper module
@@ -81,9 +82,10 @@ fn addNvDec(
         .optimize = optimize,
     });
     nvdec_bindings.addImport("cuda_bindings", cuda_modules.cuda_bindings);
-    // We will be loading the NVIDIA libraries dynamically but they still require libc.
-    // Settings link_libc = true here will cause libc to be linked by dependents even
-    // though we are exporting a module rather than a library.
+    // We will be loading the NVIDIA libraries dynamically but they still
+    // require libc. Settings link_libc = true here will cause libc to be
+    // linked by dependents even though we are exporting a module rather than a
+    // library.
     nvdec_bindings.link_libc = true;
 
     // Zig-friendly wrapper module
@@ -120,9 +122,10 @@ fn addNvEnc(
         .optimize = optimize,
     });
     nvenc_bindings.addImport("cuda_bindings", cuda_modules.cuda_bindings);
-    // We will be loading the NVIDIA libraries dynamically but they still require libc.
-    // Settings link_libc = true here will cause libc to be linked by dependents even
-    // though we are exporting a module rather than a library.
+    // We will be loading the NVIDIA libraries dynamically but they still
+    // require libc. Settings link_libc = true here will cause libc to be
+    // linked by dependents even though we are exporting a module rather than a
+    // library.
     nvenc_bindings.link_libc = true;
 
     // Zig-friendly wrapper module

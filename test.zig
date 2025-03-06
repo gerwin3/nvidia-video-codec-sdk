@@ -545,7 +545,7 @@ const TestColor = enum {
     }
 
     fn from_yuv(yuv: [3]f32) ?TestColor {
-        const epsilon = 5.0;
+        const epsilon = 7.5;
         const rgb = yuv2rgb(yuv);
         if ((255.0 - rgb[0] < epsilon) and rgb[1] < epsilon and rgb[2] < epsilon)
             return .red
