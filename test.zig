@@ -819,9 +819,9 @@ fn test_impl(
         .timestamp = 0,
     };
 
-    var bitstream = std.ArrayList(u8).init(allocator);
-    defer bitstream.deinit();
-    const bitstream_writer = bitstream.writer();
+    var bitstream: std.ArrayListUnmanaged(u8) = .empty;
+    defer bitstream.deinit(allocator);
+    const bitstream_writer = bitstream.writer(allocator);
 
     var test_frames = TestFrameIterator.init(num_frames);
     while (test_frames.next()) |test_frame| {

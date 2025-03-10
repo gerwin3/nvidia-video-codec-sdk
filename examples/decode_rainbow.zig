@@ -11,10 +11,10 @@ var frame_buffer_luma: ?[]u8 = null;
 var frame_buffer_chroma: ?[]u8 = null;
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
+    var debug_allocator = std.heap.DebugAllocator(.{}){};
+    defer std.debug.assert(debug_allocator.deinit() == .ok);
 
-    const allocator = general_purpose_allocator.allocator();
+    const allocator = debug_allocator.allocator();
 
     frame_buffer_luma = try allocator.alloc(u8, height * width);
     defer allocator.free(frame_buffer_luma.?);
@@ -38,8 +38,8 @@ pub fn main() !void {
     var buffer = try allocator.alloc(u8, 4096);
     defer allocator.free(buffer);
 
-    var nal = std.ArrayList(u8).init(allocator);
-    defer nal.deinit();
+    var nal: std.ArrayListUnmanaged(u8) = .empty;
+    defer nal.deinit(allocator);
 
     while (true) {
         const len = try file.reader().readAll(buffer);
@@ -50,7 +50,7 @@ pub fn main() !void {
         for (0..len_range) |index| {
             if (std.mem.eql(u8, buffer[index .. index + 4], &.{ 0, 0, 0, 1 })) {
                 if (index - last_nal > 0) {
-                    nal.appendSlice(buffer[last_nal..index]) catch @panic("oom");
+                    nal.appendSlice(allocator, buffer[last_nal..index]) catch @panic("oom");
                 }
                 if (nal.items.len > 0) {
                     if (try decoder.decode(nal.items)) |frame| {
@@ -63,7 +63,7 @@ pub fn main() !void {
         }
 
         if (last_nal < len) {
-            nal.appendSlice(buffer[last_nal..len]) catch @panic("oom");
+            nal.appendSlice(allocator, buffer[last_nal..len]) catch @panic("oom");
         }
 
         if (len < buffer.len) break;

@@ -10,10 +10,10 @@ const width = 1920;
 const height = 1080;
 
 pub fn main() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
+    var debug_allocator = std.heap.DebugAllocator(.{}){};
+    defer std.debug.assert(debug_allocator.deinit() == .ok);
 
-    const allocator = general_purpose_allocator.allocator();
+    const allocator = debug_allocator.allocator();
 
     try nvenc.cuda.load();
     try nvenc.cuda.init();
