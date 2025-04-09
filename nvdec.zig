@@ -318,7 +318,9 @@ pub const Decoder = struct {
         decoder_create_info.ulNumOutputSurfaces = num_output_surfaces;
         decoder_create_info.ulCreationFlags = nvdec_bindings.create_flags.prefer_CUVID;
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
-        // decoder_create_info.vidLock = lock;
+        // TODO: This IS required when multi-threading and sharing a CUDA
+        // context among multiple decoders.
+        // // decoder_create_info.vidLock = lock;
         decoder_create_info.ulWidth = format.coded_width;
         decoder_create_info.ulHeight = format.coded_height;
         decoder_create_info.ulMaxWidth = 0;
