@@ -35,11 +35,11 @@
             zigpkgs.default
             zls
           ];
-          # This is the equivalent of addDriverRunpath for dev shell.
-          # In a Nix build we would use addDriverRunpath to patch the
-          # binary rpath to load the driver libraries. In a devshell
-          # we do not have access to the binary so we just add the
-          # driver library path to LD_LIBRARY_PATH.
+          # This is the equivalent of addDriverRunpath for dev shell. In a Nix
+          # build we would use addDriverRunpath to patch the binary rpath to
+          # load the driver libraries. In a devshell we do not have access to
+          # the binary so we just add the driver library path to
+          # LD_LIBRARY_PATH.
           shellHook = ''
             export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/run/opengl-driver/lib/";
           '';
