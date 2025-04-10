@@ -320,6 +320,21 @@ pub const Decoder = struct {
         decoder_create_info.ulNumDecodeSurfaces = @intCast(num_decode_surfaces);
         // TODO: This IS required when multi-threading and sharing a CUDA
         // context among multiple decoders.
+        //
+        // TODO: This bit of info I found on the NVIDIA forums:
+        // "I use a single cuda context with all of the decoders instantiated
+        // inside this context From the above statement, I am assuming single
+        // CUDA context for all decoders inside this “process”. -- If my
+        // understanding is correct, your assumption that you should only have
+        // a single context for parallel decoder executions is incorrect. You
+        // can have multiple contexts (context per thread). “Context per
+        // thread” model can be used to saturate the decode engine. Note again,
+        // that video decode engine is completely independent and separate from
+        // graphics engine on the GPU and hence the optimization principles for
+        // CUDA do not necessarily apply directly for video decoding."
+        //
+        // And then there is this: https://www.rationalqm.us/dgdecnv/cuda/cuda.html
+        //
         // // decoder_create_info.vidLock = lock;
         decoder_create_info.ulWidth = format.coded_width;
         decoder_create_info.ulHeight = format.coded_height;
