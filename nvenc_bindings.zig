@@ -1107,14 +1107,14 @@ pub fn load() !void {
         else => @compileError("unsupported operating system"),
     };
 
-    const NvEncodeAPIGetMaxSupportedVersion = dylib.lookup(*const fn (version: *u32) Status, "NvEncodeAPIGetMaxSupportedVersion") orelse @panic("invalid libnvidia-encode");
+    const NvEncodeAPIGetMaxSupportedVersion = dylib.lookup(*const fn (version: *u32) callconv(.C) Status, "NvEncodeAPIGetMaxSupportedVersion") orelse @panic("invalid libnvidia-encode");
     var version_lib: u32 = 0;
     if (NvEncodeAPIGetMaxSupportedVersion(&version_lib) != .success)
         @panic("NvEncodeAPIGetMaxSupportedVersion failed");
     if (((api_major_version << 4) | api_minor_version) > version_lib)
-        return error.DriverVersionTooOld;
+        return error.DriverVersionNotSupported;
 
-    const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");
+    const NvEncodeAPICreateInstance = dylib.lookup(*const fn (functionList: ?*ApiFunctionList) callconv(.C) Status, "NvEncodeAPICreateInstance") orelse @panic("invalid libnvidia-encode");
     var function_list = std.mem.zeroes(ApiFunctionList);
     function_list.version = api_function_list_ver;
     if (NvEncodeAPICreateInstance(&function_list) != .success)

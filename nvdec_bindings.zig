@@ -880,20 +880,20 @@ pub const VideoFormatEx = extern struct {
     },
 };
 
-pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) Result = null;
-pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result = null;
-pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) Result = null;
-pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result = null;
-pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result = null;
-pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: ?*cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result = null;
-pub var cuvidUnmapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, DevPtr: cuda_bindings.DevicePtr) Result = null;
-pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: cuda_bindings.Context) Result = null;
-pub var cuvidCtxLockDestroy: ?*const fn (lck: VideoCtxLock) Result = null;
-pub var cuvidCtxLock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
-pub var cuvidCtxUnlock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result = null;
-pub var cuvidCreateVideoParser: ?*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result = null;
-pub var cuvidParseVideoData: ?*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result = null;
-pub var cuvidDestroyVideoParser: ?*const fn (obj: VideoParser) Result = null;
+pub var cuvidGetDecoderCaps: ?*const fn (pdc: ?*DecodeCaps) callconv(.C) Result = null;
+pub var cuvidCreateDecoder: ?*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) callconv(.C) Result = null;
+pub var cuvidDestroyDecoder: ?*const fn (hDecoder: VideoDecoder) callconv(.C) Result = null;
+pub var cuvidDecodePicture: ?*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) callconv(.C) Result = null;
+pub var cuvidGetDecodeStatus: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) callconv(.C) Result = null;
+pub var cuvidMapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: ?*cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) callconv(.C) Result = null;
+pub var cuvidUnmapVideoFrame64: ?*const fn (hDecoder: VideoDecoder, DevPtr: cuda_bindings.DevicePtr) callconv(.C) Result = null;
+pub var cuvidCtxLockCreate: ?*const fn (pLock: ?*VideoCtxLock, ctx: cuda_bindings.Context) callconv(.C) Result = null;
+pub var cuvidCtxLockDestroy: ?*const fn (lck: VideoCtxLock) callconv(.C) Result = null;
+pub var cuvidCtxLock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) callconv(.C) Result = null;
+pub var cuvidCtxUnlock: ?*const fn (lck: VideoCtxLock, reserved_flags: c_uint) callconv(.C) Result = null;
+pub var cuvidCreateVideoParser: ?*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) callconv(.C) Result = null;
+pub var cuvidParseVideoData: ?*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) callconv(.C) Result = null;
+pub var cuvidDestroyVideoParser: ?*const fn (obj: VideoParser) callconv(.C) Result = null;
 
 /// You MUST call this function as soon as possible and before starting any threads since it is not thread safe.
 pub fn load() !void {
@@ -905,18 +905,18 @@ pub fn load() !void {
         .windows => std.DynLib.open("nvcuvid.dll"),
         else => @panic("unsupported operating system"),
     };
-    cuvidGetDecoderCaps = nvcuvid.lookup(*const fn (pdc: ?*DecodeCaps) Result, "cuvidGetDecoderCaps") orelse @panic("cuvid library invalid");
-    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
-    cuvidDestroyDecoder = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder) Result, "cuvidDestroyDecoder") orelse @panic("cuvid library invalid");
-    cuvidDecodePicture = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) Result, "cuvidDecodePicture") orelse @panic("cuvid library invalid");
-    cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");
-    cuvidMapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) Result, "cuvidMapVideoFrame64") orelse @panic("cuvid library invalid");
-    cuvidUnmapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, DevPtr: cuda_bindings.DevicePtr) Result, "cuvidUnmapVideoFrame64") orelse @panic("cuvid library invalid");
-    cuvidCtxLockCreate = nvcuvid.lookup(*const fn (pLock: [*c]VideoCtxLock, ctx: cuda_bindings.Context) Result, "cuvidCtxLockCreate") orelse @panic("cuvid library invalid");
-    cuvidCtxLockDestroy = nvcuvid.lookup(*const fn (lck: VideoCtxLock) Result, "cuvidCtxLockDestroy") orelse @panic("cuvid library invalid");
-    cuvidCtxLock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxLock") orelse @panic("cuvid library invalid");
-    cuvidCtxUnlock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) Result, "cuvidCtxUnlock") orelse @panic("cuvid library invalid");
-    cuvidCreateVideoParser = nvcuvid.lookup(*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) Result, "cuvidCreateVideoParser") orelse @panic("cuvid library invalid");
-    cuvidParseVideoData = nvcuvid.lookup(*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) Result, "cuvidParseVideoData") orelse @panic("cuvid library invalid");
-    cuvidDestroyVideoParser = nvcuvid.lookup(*const fn (obj: VideoParser) Result, "cuvidDestroyVideoParser") orelse @panic("cuvid library invalid");
+    cuvidGetDecoderCaps = nvcuvid.lookup(*const fn (pdc: ?*DecodeCaps) callconv(.C) Result, "cuvidGetDecoderCaps") orelse @panic("cuvid library invalid");
+    cuvidCreateDecoder = nvcuvid.lookup(*const fn (phDecoder: ?*VideoDecoder, pdci: ?*DecodeCreateInfo) callconv(.C) Result, "cuvidCreateDecoder") orelse @panic("cuvid library invalid");
+    cuvidDestroyDecoder = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder) callconv(.C) Result, "cuvidDestroyDecoder") orelse @panic("cuvid library invalid");
+    cuvidDecodePicture = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, pPicParams: ?*PicParams) callconv(.C) Result, "cuvidDecodePicture") orelse @panic("cuvid library invalid");
+    cuvidGetDecodeStatus = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDecodeStatus: ?*GetDecodeStatus) callconv(.C) Result, "cuvidGetDecodeStatus") orelse @panic("cuvid library invalid");
+    cuvidMapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, nPicIdx: c_int, pDevPtr: [*c]cuda_bindings.DevicePtr, pPitch: [*c]c_uint, pVPP: ?*ProcParams) callconv(.C) Result, "cuvidMapVideoFrame64") orelse @panic("cuvid library invalid");
+    cuvidUnmapVideoFrame64 = nvcuvid.lookup(*const fn (hDecoder: VideoDecoder, DevPtr: cuda_bindings.DevicePtr) callconv(.C) Result, "cuvidUnmapVideoFrame64") orelse @panic("cuvid library invalid");
+    cuvidCtxLockCreate = nvcuvid.lookup(*const fn (pLock: [*c]VideoCtxLock, ctx: cuda_bindings.Context) callconv(.C) Result, "cuvidCtxLockCreate") orelse @panic("cuvid library invalid");
+    cuvidCtxLockDestroy = nvcuvid.lookup(*const fn (lck: VideoCtxLock) callconv(.C) Result, "cuvidCtxLockDestroy") orelse @panic("cuvid library invalid");
+    cuvidCtxLock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) callconv(.C) Result, "cuvidCtxLock") orelse @panic("cuvid library invalid");
+    cuvidCtxUnlock = nvcuvid.lookup(*const fn (lck: VideoCtxLock, reserved_flags: c_uint) callconv(.C) Result, "cuvidCtxUnlock") orelse @panic("cuvid library invalid");
+    cuvidCreateVideoParser = nvcuvid.lookup(*const fn (pObj: ?*VideoParser, pParams: ?*ParserParams) callconv(.C) Result, "cuvidCreateVideoParser") orelse @panic("cuvid library invalid");
+    cuvidParseVideoData = nvcuvid.lookup(*const fn (obj: VideoParser, pPacket: ?*SourceDataPacket) callconv(.C) Result, "cuvidParseVideoData") orelse @panic("cuvid library invalid");
+    cuvidDestroyVideoParser = nvcuvid.lookup(*const fn (obj: VideoParser) callconv(.C) Result, "cuvidDestroyVideoParser") orelse @panic("cuvid library invalid");
 }
